@@ -17,7 +17,6 @@ import abc
 import typing as tp
 
 from jax import vmap
-import jax.numpy as jnp
 from jaxtyping import (
     Float,
     Num,
@@ -69,7 +68,6 @@ class AbstractKernelComputation:
             The Gram covariance of the kernel function as a linear operator.
         """
         Kxx = self._gram(kernel, inputs)
-        # Kxx = self.cross_covariance(kernel, inputs, inputs)
         return psd(Dense(Kxx))
 
     @abc.abstractmethod
@@ -100,7 +98,7 @@ class AbstractKernelComputation:
         return self._cross_covariance(kernel, first_inputs, second_inputs)
 
     def _diagonal(self, kernel: K, inputs: Num[Array, "N D"]) -> Float[Array, "N N"]:
-        return jnp.diag(vmap(lambda x: kernel(x, x))(inputs))
+        return psd(Diagonal(vmap(lambda x: kernel(x, x))(inputs)))
 
     def diagonal(self, kernel: K, inputs: Num[Array, "N D"]) -> Diagonal:
         r"""For a given kernel, compute the elementwise diagonal of the
@@ -113,5 +111,4 @@ class AbstractKernelComputation:
         Returns:
             The computed diagonal variance as a `Diagonal` linear operator.
         """
-        Kxx = self._diagonal(kernel, inputs)
-        return psd(Diagonal(Kxx))
+        return self._diagonal(kernel, inputs)

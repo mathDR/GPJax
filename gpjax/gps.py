@@ -35,9 +35,9 @@ from gpjax.distributions import GaussianDistribution
 from gpjax.kernels import RFF
 from gpjax.kernels.base import AbstractKernel
 from gpjax.likelihoods import (
- AbstractLikelihood,
- Gaussian,
- NonGaussian,
+    AbstractLikelihood,
+    Gaussian,
+    NonGaussian,
 )
 from gpjax.linalg import (
     Dense,
@@ -116,9 +116,9 @@ class AbstractPrior(nnx.Module, tp.Generic[M, K]):
         of the Gaussian process.
         """
         return self.predict(
-        test_inputs,
-        return_cov_type=return_cov_type,
-    )
+            test_inputs,
+            return_cov_type=return_cov_type,
+        )
 
     @abstractmethod
     def predict(
@@ -179,16 +179,16 @@ class Prior(AbstractPrior[M, K]):
         def __mul__(self, other: GL) -> "ConjugatePosterior[Prior[M, K], GL]": ...
 
         @tp.overload
-        def __mul__( # noqa: F811
+        def __mul__(  # noqa: F811
             self, other: NGL
         ) -> "NonConjugatePosterior[Prior[M, K], NGL]": ...
 
         @tp.overload
-        def __mul__( # noqa: F811
+        def __mul__(  # noqa: F811
             self, other: L
         ) -> "AbstractPosterior[Prior[M, K], L]": ...
 
-    def __mul__(self, other): # noqa: F811
+    def __mul__(self, other):  # noqa: F811
         r"""Combine the prior with a likelihood to form a posterior distribution.
 
         The product of a prior and likelihood is proportional to the posterior
@@ -225,16 +225,16 @@ class Prior(AbstractPrior[M, K]):
         def __rmul__(self, other: GL) -> "ConjugatePosterior[Prior[M, K], GL]": ...
 
         @tp.overload
-        def __rmul__( # noqa: F811
+        def __rmul__(  # noqa: F811
             self, other: NGL
         ) -> "NonConjugatePosterior[Prior[M, K], NGL]": ...
 
         @tp.overload
-        def __rmul__( # noqa: F811
+        def __rmul__(  # noqa: F811
             self, other: L
         ) -> "AbstractPosterior[Prior[M, K], L]": ...
 
-    def __rmul__(self, other): # noqa: F811
+    def __rmul__(self, other):  # noqa: F811
         r"""Combine the prior with a likelihood to form a posterior distribution.
 
         Reimplement the multiplication operator to allow for order-invariant
@@ -715,9 +715,9 @@ class ConjugatePosterior(AbstractPosterior[P, GL]):
         y = train_data.y - self.prior.mean_function(train_data.X)
         Phi = fourier_feature_fn(train_data.X)
         canonical_weights = solve(
-        Sigma,
-        y + eps - jnp.inner(Phi, fourier_weights),
-        ) # [N, B]
+            Sigma,
+            y + eps - jnp.inner(Phi, fourier_weights),
+        )  # [N, B]
 
         def sample_fn(test_inputs: Float[Array, "n D"]) -> Float[Array, "n B"]:
             fourier_features = fourier_feature_fn(test_inputs)
