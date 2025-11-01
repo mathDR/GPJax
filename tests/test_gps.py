@@ -4,7 +4,7 @@
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#     http://www.apache.org/licenses/LICENSE-2.0
+# http://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -78,6 +78,37 @@ def test_abstract_posterior():
 @pytest.mark.parametrize("num_datapoints", [1, 10])
 @pytest.mark.parametrize("kernel", [RBF, Matern52])
 @pytest.mark.parametrize("mean_function", [Zero, Constant])
+def test_prior_with_diag(
+    num_datapoints: int,
+    kernel: type[AbstractKernel],
+    mean_function: Type[AbstractMeanFunction],
+) -> None:
+    # Create prior.
+    prior = Prior(mean_function=mean_function(), kernel=kernel())
+
+    # Check types.
+    assert isinstance(prior, Prior)
+    assert isinstance(prior, AbstractPrior)
+
+    # Query a marginal distribution at some inputs.
+    inputs = jnp.linspace(-3.0, 3.0, num_datapoints).reshape(-1, 1)
+    marginal_distribution = prior(inputs, return_cov_type="diagonal")
+
+    # Ensure that the marginal distribution is a Gaussian.
+    assert isinstance(marginal_distribution, GaussianDistribution)
+    assert isinstance(marginal_distribution, NumpyroDistribution)
+
+    # Ensure that the marginal distribution has the correct shape.
+    mu = marginal_distribution.mean
+    sigma = marginal_distribution.covariance()
+    assert mu.shape == (num_datapoints,)
+    assert sigma.shape == (num_datapoints, num_datapoints)
+    assert jnp.all((sigma - jnp.diag(jnp.diag(sigma))) == 0)
+
+
+@pytest.mark.parametrize("num_datapoints", [1, 10])
+@pytest.mark.parametrize("kernel", [RBF, Matern52])
+@pytest.mark.parametrize("mean_function", [Zero, Constant])
 def test_prior(
     num_datapoints: int,
     kernel: type[AbstractKernel],
@@ -103,6 +134,48 @@ def test_prior(
     sigma = marginal_distribution.covariance()
     assert mu.shape == (num_datapoints,)
     assert sigma.shape == (num_datapoints, num_datapoints)
+
+
+@pytest.mark.parametrize("num_datapoints", [1, 10])
+@pytest.mark.parametrize("kernel", [RBF, Matern52])
+@pytest.mark.parametrize("mean_function", [Zero, Constant])
+def test_conjugate_posterior_with_diag(
+    num_datapoints: int,
+    kernel: type[AbstractKernel],
+    mean_function: type[AbstractMeanFunction],
+) -> None:
+    # Create a dataset.
+    key = jr.key(123)
+    x = jr.uniform(key=key, minval=-2.0, maxval=2.0, shape=(num_datapoints, 1))
+    y = jnp.sin(x) + jr.normal(key=key, shape=x.shape) * 0.1
+    D = Dataset(X=x, y=y)
+
+    # Define prior.
+    prior = Prior(mean_function=mean_function(), kernel=kernel())
+
+    # Define a likelihood.
+    likelihood = Gaussian(num_datapoints=num_datapoints)
+
+    # Construct the posterior via the class.
+    posterior = ConjugatePosterior(prior=prior, likelihood=likelihood)
+
+    # Check types.
+    assert isinstance(posterior, ConjugatePosterior)
+
+    # Query a marginal distribution of the posterior at some inputs.
+    inputs = jnp.linspace(-3.0, 3.0, num_datapoints).reshape(-1, 1)
+    marginal_distribution = posterior(inputs, D, return_cov_type="diagonal")
+
+    # Ensure that the marginal distribution is a Gaussian.
+    assert isinstance(marginal_distribution, GaussianDistribution)
+    assert isinstance(marginal_distribution, NumpyroDistribution)
+
+    # Ensure that the marginal distribution has the correct shape.
+    mu = marginal_distribution.mean
+    sigma = marginal_distribution.covariance()
+    assert mu.shape == (num_datapoints,)
+    assert sigma.shape == (num_datapoints, num_datapoints)
+    assert jnp.all((sigma - jnp.diag(jnp.diag(sigma))) == 0)
 
 
 @pytest.mark.parametrize("num_datapoints", [1, 10])
@@ -144,6 +217,54 @@ def test_conjugate_posterior(
     sigma = marginal_distribution.covariance()
     assert mu.shape == (num_datapoints,)
     assert sigma.shape == (num_datapoints, num_datapoints)
+
+
+@pytest.mark.parametrize("num_datapoints", [1, 10])
+@pytest.mark.parametrize("kernel", [RBF, Matern52])
+@pytest.mark.parametrize("mean_function", [Zero, Constant])
+def test_nonconjugate_posterior_with_diag(
+    num_datapoints: int,
+    kernel: type[AbstractKernel],
+    mean_function: type[AbstractMeanFunction],
+) -> None:
+    # Create a dataset.
+    key = jr.key(123)
+    x = jr.uniform(key=key, minval=-2.0, maxval=2.0, shape=(num_datapoints, 1))
+    y = jnp.sin(x) + jr.normal(key=key, shape=x.shape) * 0.1
+    D = Dataset(X=x, y=y)
+
+    # Define prior.
+    prior = Prior(mean_function=mean_function(), kernel=kernel())
+
+    # Define a likelihood.
+    likelihood = Bernoulli(num_datapoints=num_datapoints)
+
+    # Construct the posterior via the class.
+    posterior = NonConjugatePosterior(prior=prior, likelihood=likelihood)
+
+    # Check types.
+    assert isinstance(posterior, NonConjugatePosterior)
+
+    # Check latent values.
+    latent_values = jr.normal(posterior.key, (num_datapoints, 1))
+    assert (posterior.latent.value == latent_values).all()
+
+    # Query a marginal distribution of the posterior at some inputs.
+    inputs = jnp.linspace(-3.0, 3.0, num_datapoints).reshape(-1, 1)
+    marginal_distribution = posterior(inputs, D, return_cov_type="diagonal")
+
+    # Ensure that the marginal distribution is a Gaussian.
+    assert isinstance(marginal_distribution, GaussianDistribution)
+    assert isinstance(marginal_distribution, NumpyroDistribution)
+
+    # Ensure that the marginal distribution has the correct shape.
+    mu = marginal_distribution.mean
+    sigma = marginal_distribution.covariance()
+    assert mu.shape == (num_datapoints,)
+    # We are still returning a full covariance, even though the off diagonal
+    # should all be zeros...
+    assert sigma.shape == (num_datapoints, num_datapoints)
+    assert jnp.all((sigma - jnp.diag(jnp.diag(sigma))) == 0)
 
 
 @pytest.mark.parametrize("num_datapoints", [1, 10])
@@ -249,22 +370,22 @@ def test_prior_sample_approx(num_datapoints, kernel, mean_function):
         p.sample_approx(1, key, 0.5)
 
     sampled_fn = p.sample_approx(1, key, 100)
-    assert isinstance(sampled_fn, Callable)  # check type
+    assert isinstance(sampled_fn, Callable) # check type
 
     x = jr.uniform(key=key, minval=-2.0, maxval=2.0, shape=(num_datapoints, 2))
     evals = sampled_fn(x)
-    assert evals.shape == (num_datapoints, 1.0)  # check shape
+    assert evals.shape == (num_datapoints, 1.0) # check shape
 
     sampled_fn_2 = p.sample_approx(1, key, 100)
     evals_2 = sampled_fn_2(x)
     max_delta = jnp.max(jnp.abs(evals - evals_2))
-    assert max_delta == 0.0  # samples same for same seed
+    assert max_delta == 0.0 # samples same for same seed
 
     new_key = jr.key(12345)
     sampled_fn_3 = p.sample_approx(1, new_key, num_features=100)
     evals_3 = sampled_fn_3(x)
     max_delta = jnp.max(jnp.abs(evals - evals_3))
-    assert max_delta > 0.01  # samples different for different seed
+    assert max_delta > 0.01 # samples different for different seed
 
     # Check validty of samples using Monte-Carlo
     sampled_fn = p.sample_approx(10_000, key, 100)
@@ -276,8 +397,8 @@ def test_prior_sample_approx(num_datapoints, kernel, mean_function):
     true_var = jnp.diagonal(true_predictive.covariance())
     max_error_in_mean = jnp.max(jnp.abs(approx_mean - true_mean))
     max_error_in_var = jnp.max(jnp.abs(approx_var - true_var))
-    assert max_error_in_mean < 0.02  # check that samples are correct
-    assert max_error_in_var < 0.05  # check that samples are correct
+    assert max_error_in_mean < 0.02 # check that samples are correct
+    assert max_error_in_var < 0.05 # check that samples are correct
 
 
 @pytest.mark.parametrize("num_datapoints", [1, 5])
@@ -286,47 +407,47 @@ def test_prior_sample_approx(num_datapoints, kernel, mean_function):
 def test_conjugate_posterior_sample_approx(num_datapoints, kernel, mean_function):
     kern = kernel(lengthscale=jnp.array([5.0, 1.0]), variance=0.1)
     p = Prior(kernel=kern, mean_function=mean_function()) * Gaussian(
-        num_datapoints=num_datapoints
+    num_datapoints=num_datapoints
     )
     key = jr.key(123)
 
     x = jr.uniform(key=key, minval=-2.0, maxval=2.0, shape=(num_datapoints, 2))
     y = (
-        jnp.mean(jnp.sin(x), 1, keepdims=True)
-        + jr.normal(key=key, shape=(num_datapoints, 1)) * 0.1
+    jnp.mean(jnp.sin(x), 1, keepdims=True)
+    + jr.normal(key=key, shape=(num_datapoints, 1)) * 0.1
     )
     D = Dataset(X=x, y=y)
 
     # with pytest.raises(ValueError):
-    #     p.sample_approx(-1, D, key)
+    # p.sample_approx(-1, D, key)
     # with pytest.raises(ValueError):
-    #     p.sample_approx(0, D, key)
+    # p.sample_approx(0, D, key)
     # with pytest.raises(ValidationErrors):
-    #     p.sample_approx(0.5, D, key)
+    # p.sample_approx(0.5, D, key)
     # with pytest.raises(ValueError):
-    #     p.sample_approx(1, D, key, -10)
+    # p.sample_approx(1, D, key, -10)
     # with pytest.raises(ValueError):
-    #     p.sample_approx(1, D, key, 0)
+    # p.sample_approx(1, D, key, 0)
     # with pytest.raises(ValidationErrors):
-    #     p.sample_approx(1, D, key, 0.5)
+    # p.sample_approx(1, D, key, 0.5)
 
     sampled_fn = p.sample_approx(1, D, key, num_features=100)
-    assert isinstance(sampled_fn, Callable)  # check type
+    assert isinstance(sampled_fn, Callable) # check type
 
     x = jr.uniform(key=key, minval=-2.0, maxval=2.0, shape=(num_datapoints, 2))
     evals = sampled_fn(x)
-    assert evals.shape == (num_datapoints, 1.0)  # check shape
+    assert evals.shape == (num_datapoints, 1.0) # check shape
 
     sampled_fn_2 = p.sample_approx(1, D, key, num_features=100)
     evals_2 = sampled_fn_2(x)
     max_delta = jnp.max(jnp.abs(evals - evals_2))
-    assert max_delta == 0.0  # samples same for same seed
+    assert max_delta == 0.0 # samples same for same seed
 
     new_key = jr.key(12345)
     sampled_fn_3 = p.sample_approx(1, D, new_key, num_features=100)
     evals_3 = sampled_fn_3(x)
     max_delta = jnp.max(jnp.abs(evals - evals_3))
-    assert max_delta > 0.01  # samples different for different seed
+    assert max_delta > 0.01 # samples different for different seed
 
     # Check validty of samples using Monte-Carlo
     sampled_fn = p.sample_approx(10_000, D, key, num_features=100)
@@ -338,8 +459,8 @@ def test_conjugate_posterior_sample_approx(num_datapoints, kernel, mean_function
     true_var = jnp.diagonal(true_predictive.covariance())
     max_error_in_mean = jnp.max(jnp.abs(approx_mean - true_mean))
     max_error_in_var = jnp.max(jnp.abs(approx_var - true_var))
-    assert max_error_in_mean < 0.02  # check that samples are correct
-    assert max_error_in_var < 0.05  # check that samples are correct
+    assert max_error_in_mean < 0.02 # check that samples are correct
+    assert max_error_in_var < 0.05 # check that samples are correct
 
 
 if __name__ == "__main__":

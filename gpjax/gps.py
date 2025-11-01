@@ -4,7 +4,7 @@
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#     http://www.apache.org/licenses/LICENSE-2.0
+# http://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -13,10 +13,16 @@
 # limitations under the License.
 # ==============================================================================
 # from __future__ import annotations
+
 from abc import abstractmethod
+from typing import (
+    Literal,
+    Tuple,
+)
 
 import beartype.typing as tp
 from flax import nnx
+import jax
 import jax.numpy as jnp
 import jax.random as jr
 from jaxtyping import (
@@ -29,16 +35,20 @@ from gpjax.distributions import GaussianDistribution
 from gpjax.kernels import RFF
 from gpjax.kernels.base import AbstractKernel
 from gpjax.likelihoods import (
-    AbstractLikelihood,
-    Gaussian,
-    NonGaussian,
+ AbstractLikelihood,
+ Gaussian,
+ NonGaussian,
 )
 from gpjax.linalg import (
     Dense,
+    Diagonal,
     psd,
     solve,
 )
-from gpjax.linalg.operations import lower_cholesky
+from gpjax.linalg.operations import (
+    LinearOperator,
+    lower_cholesky,
+)
 from gpjax.linalg.utils import add_jitter
 from gpjax.mean_functions import AbstractMeanFunction
 from gpjax.parameters import (
@@ -70,14 +80,19 @@ class AbstractPrior(nnx.Module, tp.Generic[M, K]):
         r"""Construct a Gaussian process prior.
 
         Args:
-            kernel: kernel object inheriting from AbstractKernel.
-            mean_function: mean function object inheriting from AbstractMeanFunction.
+        kernel: kernel object inheriting from AbstractKernel.
+        mean_function: mean function object inheriting from AbstractMeanFunction.
         """
         self.kernel = kernel
         self.mean_function = mean_function
         self.jitter = jitter
 
-    def __call__(self, test_inputs: Num[Array, "N D"]) -> GaussianDistribution:
+    def __call__(
+        self,
+        test_inputs: Num[Array, "N D"],
+        *,
+        return_cov_type: Literal["dense", "diagonal"] = "dense",
+    ) -> GaussianDistribution:
         r"""Evaluate the Gaussian process at the given points.
 
         The output of this function is a
@@ -90,16 +105,28 @@ class AbstractPrior(nnx.Module, tp.Generic[M, K]):
         `__call__` method and should instead define a `predict` method.
 
         Args:
-            test_inputs: Input locations where the GP should be evaluated.
+        test_inputs: Input locations where the GP should be evaluated.
+        return_cov_type: Literal denoting whether to return the full covariance
+        of the joint predictive distribution at the test_inputs (dense)
+        or just the the standard-deviation of the predictive distribution at
+        the test_inputs.
 
         Returns:
-            GaussianDistribution: A multivariate normal random variable representation
-                of the Gaussian process.
+        GaussianDistribution: A multivariate normal random variable representation
+        of the Gaussian process.
         """
-        return self.predict(test_inputs)
+        return self.predict(
+        test_inputs,
+        return_cov_type=return_cov_type,
+    )
 
     @abstractmethod
-    def predict(self, test_inputs: Num[Array, "N D"]) -> GaussianDistribution:
+    def predict(
+        self,
+        test_inputs: Num[Array, "N D"],
+        *,
+        return_cov_type: Literal["dense", "diagonal"] = "dense",
+    ) -> GaussianDistribution:
         r"""Evaluate the predictive distribution.
 
         Compute the latent function's multivariate normal distribution for a
@@ -107,11 +134,15 @@ class AbstractPrior(nnx.Module, tp.Generic[M, K]):
         this method must be implemented.
 
         Args:
-            test_inputs: Input locations where the GP should be evaluated.
+        test_inputs: Input locations where the GP should be evaluated.
+        return_cov_type: Literal denoting whether to return the full covariance
+        of the joint predictive distribution at the test_inputs (dense)
+        or just the the standard-deviation of the predictive distribution at
+        the test_inputs.
 
         Returns:
-            GaussianDistribution: A multivariate normal random variable representation
-                of the Gaussian process.
+        GaussianDistribution: A multivariate normal random variable representation
+        of the Gaussian process.
         """
         raise NotImplementedError
 
@@ -135,10 +166,10 @@ class Prior(AbstractPrior[M, K]):
 
     Example:
     ```python
-        >>> import gpjax as gpx
-        >>> kernel = gpx.kernels.RBF()
-        >>> meanf = gpx.mean_functions.Zero()
-        >>> prior = gpx.gps.Prior(mean_function=meanf, kernel = kernel)
+    >>> import gpjax as gpx
+    >>> kernel = gpx.kernels.RBF()
+    >>> meanf = gpx.mean_functions.Zero()
+    >>> prior = gpx.gps.Prior(mean_function=meanf, kernel = kernel)
     ```
     """
 
@@ -148,16 +179,16 @@ class Prior(AbstractPrior[M, K]):
         def __mul__(self, other: GL) -> "ConjugatePosterior[Prior[M, K], GL]": ...
 
         @tp.overload
-        def __mul__(  # noqa: F811
+        def __mul__( # noqa: F811
             self, other: NGL
         ) -> "NonConjugatePosterior[Prior[M, K], NGL]": ...
 
         @tp.overload
-        def __mul__(  # noqa: F811
+        def __mul__( # noqa: F811
             self, other: L
         ) -> "AbstractPosterior[Prior[M, K], L]": ...
 
-    def __mul__(self, other):  # noqa: F811
+    def __mul__(self, other): # noqa: F811
         r"""Combine the prior with a likelihood to form a posterior distribution.
 
         The product of a prior and likelihood is proportional to the posterior
@@ -171,20 +202,20 @@ class Prior(AbstractPrior[M, K]):
 
         Example:
         ```pycon
-            >>> import gpjax as gpx
-            >>> meanf = gpx.mean_functions.Zero()
-            >>> kernel = gpx.kernels.RBF()
-            >>> prior = gpx.gps.Prior(mean_function=meanf, kernel = kernel)
-            >>> likelihood = gpx.likelihoods.Gaussian(num_datapoints=100)
-            >>> prior * likelihood
+        >>> import gpjax as gpx
+        >>> meanf = gpx.mean_functions.Zero()
+        >>> kernel = gpx.kernels.RBF()
+        >>> prior = gpx.gps.Prior(mean_function=meanf, kernel = kernel)
+        >>> likelihood = gpx.likelihoods.Gaussian(num_datapoints=100)
+        >>> prior * likelihood
         ```
         Args:
-            other (Likelihood): The likelihood distribution of the observed dataset.
+        other (Likelihood): The likelihood distribution of the observed dataset.
 
         Returns
-            Posterior: The relevant GP posterior for the given prior and
-                likelihood. Special cases are accounted for where the model
-                is conjugate.
+        Posterior: The relevant GP posterior for the given prior and
+        likelihood. Special cases are accounted for where the model
+        is conjugate.
         """
         return construct_posterior(prior=self, likelihood=other)
 
@@ -194,33 +225,38 @@ class Prior(AbstractPrior[M, K]):
         def __rmul__(self, other: GL) -> "ConjugatePosterior[Prior[M, K], GL]": ...
 
         @tp.overload
-        def __rmul__(  # noqa: F811
+        def __rmul__( # noqa: F811
             self, other: NGL
         ) -> "NonConjugatePosterior[Prior[M, K], NGL]": ...
 
         @tp.overload
-        def __rmul__(  # noqa: F811
+        def __rmul__( # noqa: F811
             self, other: L
         ) -> "AbstractPosterior[Prior[M, K], L]": ...
 
-    def __rmul__(self, other):  # noqa: F811
+    def __rmul__(self, other): # noqa: F811
         r"""Combine the prior with a likelihood to form a posterior distribution.
 
         Reimplement the multiplication operator to allow for order-invariant
         product of a likelihood and a prior i.e., likelihood * prior.
 
         Args:
-            other (Likelihood): The likelihood distribution of the observed
-                dataset.
+        other (Likelihood): The likelihood distribution of the observed
+        dataset.
 
         Returns
-            Posterior: The relevant GP posterior for the given prior and
-                likelihood. Special cases are accounted for where the model
-                is conjugate.
+        Posterior: The relevant GP posterior for the given prior and
+        likelihood. Special cases are accounted for where the model
+        is conjugate.
         """
         return self.__mul__(other)
 
-    def predict(self, test_inputs: Num[Array, "N D"]) -> GaussianDistribution:
+    def predict(
+        self,
+        test_inputs: Num[Array, "N D"],
+        *,
+        return_cov_type: Literal["dense", "diagonal"] = "dense",
+    ) -> GaussianDistribution:
         r"""Compute the predictive prior distribution for a given set of
         parameters. The output of this function is a function that computes
         a TFP distribution for a given set of inputs.
@@ -230,28 +266,53 @@ class Prior(AbstractPrior[M, K]):
 
         Example:
         ```pycon
-            >>> import gpjax as gpx
-            >>> import jax.numpy as jnp
-            >>> kernel = gpx.kernels.RBF()
-            >>> mean_function = gpx.mean_functions.Zero()
-            >>> prior = gpx.gps.Prior(mean_function=mean_function, kernel=kernel)
-            >>> prior.predict(jnp.linspace(0, 1, 100)[:, None])
+        >>> import gpjax as gpx
+        >>> import jax.numpy as jnp
+        >>> kernel = gpx.kernels.RBF()
+        >>> mean_function = gpx.mean_functions.Zero()
+        >>> prior = gpx.gps.Prior(mean_function=mean_function, kernel=kernel)
+        >>> prior.predict(jnp.linspace(0, 1, 100)[:, None])
         ```
 
         Args:
-            test_inputs (Float[Array, "N D"]): The inputs at which to evaluate the
-                prior distribution.
+        test_inputs (Float[Array, "N D"]): The inputs at which to evaluate the
+        prior distribution.
+        return_cov_type: Literal denoting whether to return the full covariance
+        of the joint predictive distribution at the test_inputs (dense)
+        or just the the standard-deviation of the predictive distribution at
+        the test_inputs.
 
         Returns:
-            GaussianDistribution: A multivariate normal random variable representation
-                of the Gaussian process.
+        GaussianDistribution: A multivariate normal random variable representation
+        of the Gaussian process.
         """
-        mean_at_test = self.mean_function(test_inputs)
-        Kxx = self.kernel.gram(test_inputs)
-        Kxx_dense = add_jitter(Kxx.to_dense(), self.jitter)
-        Kxx = psd(Dense(Kxx_dense))
 
-        return GaussianDistribution(jnp.atleast_1d(mean_at_test.squeeze()), Kxx)
+        def _ret_full_cov(
+            t: Num[Array, "N D"],
+        ) -> Tuple[Float[Array, " N"], LinearOperator]:
+            mean_at_test = self.mean_function(t)
+            Kxx = self.kernel.gram(t)
+            Kxx_dense = add_jitter(Kxx.to_dense(), self.jitter)
+            Kxx = psd(Dense(Kxx_dense))
+            return jnp.atleast_1d(mean_at_test.squeeze()), Kxx
+
+        def _ret_diag_cov(
+            t: Num[Array, "N D"],
+        ) -> Tuple[Float[Array, " N"], LinearOperator]:
+            mean_at_test = self.mean_function(t)
+            Kxx = self.kernel.diagonal(t).diagonal
+            Kxx += self.jitter
+            Kxx = psd(Dense(Diagonal(Kxx).to_dense()))
+            return jnp.atleast_1d(mean_at_test.squeeze()), Kxx
+
+        mu, cov = jax.lax.cond(
+            return_cov_type == "dense",
+            _ret_full_cov,
+            _ret_diag_cov,
+            test_inputs,
+        )
+
+        return GaussianDistribution(loc=mu, scale=cov)
 
     def sample_approx(
         self,
@@ -285,28 +346,28 @@ class Prior(AbstractPrior[M, K]):
 
         Example:
         ```pycon
-            >>> import gpjax as gpx
-            >>> import jax.numpy as jnp
-            >>> import jax.random as jr
-            >>> key = jr.PRNGKey(123)
-            >>>
-            >>> meanf = gpx.mean_functions.Zero()
-            >>> kernel = gpx.kernels.RBF(n_dims=1)
-            >>> prior = gpx.gps.Prior(mean_function=meanf, kernel = kernel)
-            >>>
-            >>> sample_fn = prior.sample_approx(10, key)
-            >>> sample_fn(jnp.linspace(0, 1, 100).reshape(-1, 1))
+        >>> import gpjax as gpx
+        >>> import jax.numpy as jnp
+        >>> import jax.random as jr
+        >>> key = jr.PRNGKey(123)
+        >>>
+        >>> meanf = gpx.mean_functions.Zero()
+        >>> kernel = gpx.kernels.RBF(n_dims=1)
+        >>> prior = gpx.gps.Prior(mean_function=meanf, kernel = kernel)
+        >>>
+        >>> sample_fn = prior.sample_approx(10, key)
+        >>> sample_fn(jnp.linspace(0, 1, 100).reshape(-1, 1))
         ```
 
         Args:
-            num_samples (int): The desired number of samples.
-            key (KeyArray): The random seed used for the sample(s).
-            num_features (int): The number of features used when approximating the
-                kernel.
+        num_samples (int): The desired number of samples.
+        key (KeyArray): The random seed used for the sample(s).
+        num_features (int): The number of features used when approximating the
+        kernel.
 
         Returns:
-            FunctionalSample: A function representing an approximate sample from the
-                Gaussian process prior.
+        FunctionalSample: A function representing an approximate sample from the
+        Gaussian process prior.
         """
 
         if (not isinstance(num_samples, int)) or num_samples <= 0:
@@ -329,7 +390,7 @@ P = tp.TypeVar("P", bound=AbstractPrior)
 
 #######################
 # GP Posteriors
-#######################
+#######################from gpjax.linalg.operators import LinearOperator
 class AbstractPosterior(nnx.Module, tp.Generic[P, L]):
     r"""Abstract Gaussian process posterior.
 
@@ -346,17 +407,21 @@ class AbstractPosterior(nnx.Module, tp.Generic[P, L]):
         r"""Construct a Gaussian process posterior.
 
         Args:
-            prior (AbstractPrior): The prior distribution.
-            likelihood (AbstractLikelihood): The likelihood distribution.
-            jitter (float): A small constant added to the diagonal of the
-                covariance matrix to ensure numerical stability.
+        prior (AbstractPrior): The prior distribution.
+        likelihood (AbstractLikelihood): The likelihood distribution.
+        jitter (float): A small constant added to the diagonal of the
+        covariance matrix to ensure numerical stability.
         """
         self.prior = prior
         self.likelihood = likelihood
         self.jitter = jitter
 
     def __call__(
-        self, test_inputs: Num[Array, "N D"], train_data: Dataset
+        self,
+        test_inputs: Num[Array, "N D"],
+        train_data: Dataset,
+        *,
+        return_cov_type: Literal["dense", "diagonal"] = "dense",
     ) -> GaussianDistribution:
         r"""Evaluate the Gaussian process posterior at the given points.
 
@@ -370,30 +435,46 @@ class AbstractPosterior(nnx.Module, tp.Generic[P, L]):
         `__call__` method and should instead define a `predict` method.
 
         Args:
-            test_inputs: Input locations where the GP should be evaluated.
-            train_data: Training dataset to condition on.
+        test_inputs: Input locations where the GP should be evaluated.
+        train_data: Training dataset to condition on.
+        return_cov_type: Literal denoting whether to return the full covariance
+        of the joint predictive distribution at the test_inputs (dense)
+        or just the the standard-deviation of the predictive distribution at
+        the test_inputs.
 
         Returns:
-            GaussianDistribution: A multivariate normal random variable representation
-                of the Gaussian process.
+        GaussianDistribution: A multivariate normal random variable representation
+        of the Gaussian process.
         """
-        return self.predict(test_inputs, train_data)
+        return self.predict(
+            test_inputs,
+            train_data,
+            return_cov_type=return_cov_type,
+        )
 
     @abstractmethod
     def predict(
-        self, test_inputs: Num[Array, "N D"], train_data: Dataset
+        self,
+        test_inputs: Num[Array, "N D"],
+        train_data: Dataset,
+        *,
+        return_cov_type: Literal["dense", "diagonal"] = "dense",
     ) -> GaussianDistribution:
         r"""Compute the latent function's multivariate normal distribution for a
         given set of parameters. For any class inheriting the `AbstractPosterior` class,
         this method must be implemented.
 
         Args:
-            test_inputs: Input locations where the GP should be evaluated.
-            train_data: Training dataset to condition on.
+        test_inputs: Input locations where the GP should be evaluated.
+        train_data: Training dataset to condition on.
+        return_cov_type: Literal denoting whether to return the full covariance
+        of the joint predictive distribution at the test_inputs (dense)
+        or just the the standard-deviation of the predictive distribution at
+        the test_inputs.
 
         Returns:
-            GaussianDistribution: A multivariate normal random variable representation
-                of the Gaussian process.
+        GaussianDistribution: A multivariate normal random variable representation
+        of the Gaussian process.
         """
         raise NotImplementedError
 
@@ -414,29 +495,29 @@ class ConjugatePosterior(AbstractPosterior[P, GL]):
     ```math
     \begin{align}
     p(\mathbf{f}^{\star}\mid \mathbf{y}) & = \int p(\mathbf{f}^{\star}, \mathbf{f} \mid \mathbf{y})\\
-        & =\mathcal{N}(\mathbf{f}^{\star} \boldsymbol{\mu}_{\mid \mathbf{y}}, \boldsymbol{\Sigma}_{\mid \mathbf{y}}
+    & =\mathcal{N}(\mathbf{f}^{\star} \boldsymbol{\mu}_{\mid \mathbf{y}}, \boldsymbol{\Sigma}_{\mid \mathbf{y}}
     \end{align}
     ```
     where
     ```math
     \begin{align}
-    \boldsymbol{\mu}_{\mid \mathbf{y}} & = k(\mathbf{x}^{\star}, \mathbf{x})\left(k(\mathbf{x}, \mathbf{x}')+\sigma^2\mathbf{I}_n\right)^{-1}\mathbf{y}  \\
+    \boldsymbol{\mu}_{\mid \mathbf{y}} & = k(\mathbf{x}^{\star}, \mathbf{x})\left(k(\mathbf{x}, \mathbf{x}')+\sigma^2\mathbf{I}_n\right)^{-1}\mathbf{y} \\
     \boldsymbol{\Sigma}_{\mid \mathbf{y}} & =k(\mathbf{x}^{\star}, \mathbf{x}^{\star\prime}) -k(\mathbf{x}^{\star}, \mathbf{x})\left( k(\mathbf{x}, \mathbf{x}') + \sigma^2\mathbf{I}_n \right)^{-1}k(\mathbf{x}, \mathbf{x}^{\star}).
     \end{align}
     ```
 
     Example:
     ```pycon
-        >>> import gpjax as gpx
-        >>> import jax.numpy as jnp
-        >>>
-        >>> prior = gpx.gps.Prior(
-                mean_function = gpx.mean_functions.Zero(),
-                kernel = gpx.kernels.RBF()
-            )
-        >>> likelihood = gpx.likelihoods.Gaussian(num_datapoints=100)
-        >>>
-        >>> posterior = prior * likelihood
+    >>> import gpjax as gpx
+    >>> import jax.numpy as jnp
+    >>>
+    >>> prior = gpx.gps.Prior(
+    mean_function = gpx.mean_functions.Zero(),
+    kernel = gpx.kernels.RBF()
+    )
+    >>> likelihood = gpx.likelihoods.Gaussian(num_datapoints=100)
+    >>>
+    >>> posterior = prior * likelihood
     ```
     """
 
@@ -444,6 +525,8 @@ class ConjugatePosterior(AbstractPosterior[P, GL]):
         self,
         test_inputs: Num[Array, "N D"],
         train_data: Dataset,
+        *,
+        return_cov_type: Literal["dense", "diagonal"] = "dense",
     ) -> GaussianDistribution:
         r"""Query the predictive posterior distribution.
 
@@ -454,13 +537,13 @@ class ConjugatePosterior(AbstractPosterior[P, GL]):
 
         The predictive distribution of a conjugate GP is given by
         $$
-            p(\mathbf{f}^{\star}\mid \mathbf{y}) & = \int p(\mathbf{f}^{\star} \mathbf{f} \mid \mathbf{y})\\
-            & =\mathcal{N}(\mathbf{f}^{\star} \boldsymbol{\mu}_{\mid \mathbf{y}}, \boldsymbol{\Sigma}_{\mid \mathbf{y}}
+        p(\mathbf{f}^{\star}\mid \mathbf{y}) & = \int p(\mathbf{f}^{\star} \mathbf{f} \mid \mathbf{y})\\
+        & =\mathcal{N}(\mathbf{f}^{\star} \boldsymbol{\mu}_{\mid \mathbf{y}}, \boldsymbol{\Sigma}_{\mid \mathbf{y}}
         $$
         where
         $$
-            \boldsymbol{\mu}_{\mid \mathbf{y}} & = k(\mathbf{x}^{\star}, \mathbf{x})\left(k(\mathbf{x}, \mathbf{x}')+\sigma^2\mathbf{I}_n\right)^{-1}\mathbf{y}  \\
-            \boldsymbol{\Sigma}_{\mid \mathbf{y}} & =k(\mathbf{x}^{\star}, \mathbf{x}^{\star\prime}) -k(\mathbf{x}^{\star}, \mathbf{x})\left( k(\mathbf{x}, \mathbf{x}') + \sigma^2\mathbf{I}_n \right)^{-1}k(\mathbf{x}, \mathbf{x}^{\star}).
+        \boldsymbol{\mu}_{\mid \mathbf{y}} & = k(\mathbf{x}^{\star}, \mathbf{x})\left(k(\mathbf{x}, \mathbf{x}')+\sigma^2\mathbf{I}_n\right)^{-1}\mathbf{y} \\
+        \boldsymbol{\Sigma}_{\mid \mathbf{y}} & =k(\mathbf{x}^{\star}, \mathbf{x}^{\star\prime}) -k(\mathbf{x}^{\star}, \mathbf{x})\left( k(\mathbf{x}, \mathbf{x}') + \sigma^2\mathbf{I}_n \right)^{-1}k(\mathbf{x}, \mathbf{x}^{\star}).
         $$
 
         The conditioning set is a GPJax `Dataset` object, whilst predictions
@@ -468,62 +551,110 @@ class ConjugatePosterior(AbstractPosterior[P, GL]):
 
         Example:
         ```pycon
-            >>> import gpjax as gpx
-            >>> import jax.numpy as jnp
-            >>>
-            >>> xtrain = jnp.linspace(0, 1).reshape(-1, 1)
-            >>> ytrain = jnp.sin(xtrain)
-            >>> D = gpx.Dataset(X=xtrain, y=ytrain)
-            >>> xtest = jnp.linspace(0, 1).reshape(-1, 1)
-            >>>
-            >>> prior = gpx.gps.Prior(mean_function = gpx.mean_functions.Zero(), kernel = gpx.kernels.RBF())
-            >>> posterior = prior * gpx.likelihoods.Gaussian(num_datapoints = D.n)
-            >>> predictive_dist = posterior(xtest, D)
+        >>> import gpjax as gpx
+        >>> import jax.numpy as jnp
+        >>>
+        >>> xtrain = jnp.linspace(0, 1).reshape(-1, 1)
+        >>> ytrain = jnp.sin(xtrain)
+        >>> D = gpx.Dataset(X=xtrain, y=ytrain)
+        >>> xtest = jnp.linspace(0, 1).reshape(-1, 1)
+        >>>
+        >>> prior = gpx.gps.Prior(mean_function = gpx.mean_functions.Zero(), kernel = gpx.kernels.RBF())
+        >>> posterior = prior * gpx.likelihoods.Gaussian(num_datapoints = D.n)
+        >>> predictive_dist = posterior(xtest, D)
         ```
 
-        Args:
-            test_inputs (Num[Array, "N D"]): A Jax array of test inputs at which the
-                predictive distribution is evaluated.
-            train_data (Dataset): A `gpx.Dataset` object that contains the input and
-                output data used for training dataset.
+         Args:
+         test_inputs (Num[Array, "N D"]): A Jax array of test inputs at which the
+         predictive distribution is evaluated.
+         train_data (Dataset): A `gpx.Dataset` object that contains the input and
+         output data used for training dataset.
+         return_cov_type: Literal denoting whether to return the full covariance
+         of the joint predictive distribution at the test_inputs (dense)
+         or just the the standard-deviation of the predictive distribution at
+         the test_inputs.
 
-        Returns:
-            GaussianDistribution: A function that accepts an input array and
-                returns the predictive distribution as a `GaussianDistribution`.
-        """
-        # Unpack training data
-        x, y = train_data.X, train_data.y
+         Returns:
+         GaussianDistribution: A function that accepts an input array and
+         returns the predictive distribution as a `GaussianDistribution`.
+         """
 
-        # Unpack test inputs
-        t = test_inputs
+        def _ret_full_cov(
+            x: Num[Array, "N D"],
+            y: Num[Array, "N Q"],
+            t: Num[Array, "N D"],
+        ) -> Tuple[Float[Array, " N"], LinearOperator]:
+            # Observation noise o²
+            obs_noise = jnp.square(self.likelihood.obs_stddev.value)
+            mx = self.prior.mean_function(x)
 
-        # Observation noise o²
-        obs_noise = self.likelihood.obs_stddev.value**2
-        mx = self.prior.mean_function(x)
+            # Precompute Gram matrix, Kxx, at training inputs, x
+            Kxx = self.prior.kernel.gram(x)
+            Kxx = add_jitter(Kxx.to_dense(), self.jitter)
 
-        # Precompute Gram matrix, Kxx, at training inputs, x
-        Kxx = self.prior.kernel.gram(x)
-        Kxx_dense = add_jitter(Kxx.to_dense(), self.jitter)
-        Kxx = Dense(Kxx_dense)
+            Sigma_dense = Kxx + jnp.eye(Kxx.shape[0]) * obs_noise
+            Sigma = psd(Dense(Sigma_dense))
+            L_sigma = lower_cholesky(Sigma)
 
-        Sigma_dense = Kxx.to_dense() + jnp.eye(Kxx.shape[0]) * obs_noise
-        Sigma = psd(Dense(Sigma_dense))
-        L_sigma = lower_cholesky(Sigma)
+            mean_t = self.prior.mean_function(t)
+            Ktt = self.prior.kernel.gram(t)
+            Kxt = self.prior.kernel.cross_covariance(x, t)
 
-        mean_t = self.prior.mean_function(t)
-        Ktt = self.prior.kernel.gram(t)
-        Kxt = self.prior.kernel.cross_covariance(x, t)
+            L_inv_Kxt = solve(L_sigma, Kxt)
+            L_inv_y_diff = solve(L_sigma, y - mx)
 
-        L_inv_Kxt = solve(L_sigma, Kxt)
-        L_inv_y_diff = solve(L_sigma, y - mx)
+            mean = mean_t + jnp.matmul(L_inv_Kxt.T, L_inv_y_diff)
+            mean = jnp.atleast_1d(mean.squeeze())
 
-        mean = mean_t + jnp.matmul(L_inv_Kxt.T, L_inv_y_diff)
+            covariance = Ktt.to_dense() - jnp.matmul(L_inv_Kxt.T, L_inv_Kxt)
+            covariance = add_jitter(covariance, self.prior.jitter)
+            covariance = psd(Dense(covariance))
+            return mean, covariance
 
-        covariance = Ktt.to_dense() - jnp.matmul(L_inv_Kxt.T, L_inv_Kxt)
-        covariance = add_jitter(covariance, self.prior.jitter)
-        covariance = psd(Dense(covariance))
+        def _ret_diag_cov(
+            x: Num[Array, "N D"],
+            y: Num[Array, "N Q"],
+            t: Num[Array, "N D"],
+        ) -> Tuple[Float[Array, " N"], LinearOperator]:
+            # Observation noise o²
+            obs_noise = jnp.square(self.likelihood.obs_stddev.value)
+            mx = self.prior.mean_function(x)
 
-        return GaussianDistribution(jnp.atleast_1d(mean.squeeze()), covariance)
+            # Precompute Gram matrix, Kxx, at training inputs, x
+            Kxx = self.prior.kernel.diagonal(x).diagonal
+            Kxx += self.jitter
+
+            Sigma_dense = Kxx + obs_noise
+            Sigma = psd(Diagonal(Sigma_dense))
+            L_sigma = lower_cholesky(Sigma)
+
+            mean_t = self.prior.mean_function(t)
+            Ktt = self.prior.kernel.diagonal(t).diagonal[:, jnp.newaxis]
+            Kxt = self.prior.kernel.cross_covariance(x, t)
+
+            # TODO: The following are all diagonal solves, so we can just
+            # do vector addition as needed. We should furthermore return
+            # a Diagonal covariance and not a Dense.
+            L_inv_Kxt_diag = jnp.diag(solve(L_sigma, Kxt))[:, jnp.newaxis]
+            L_inv_y_diff_diag = jnp.diag(solve(L_sigma, y - mx))[:, jnp.newaxis]
+
+            mean = mean_t + L_inv_Kxt_diag * L_inv_y_diff_diag
+            mean = jnp.atleast_1d(mean.squeeze())
+            covariance = Ktt - jnp.square(L_inv_Kxt_diag)
+            covariance += self.prior.jitter
+            covariance = psd(Dense(jnp.diag(jnp.atleast_1d(covariance.squeeze()))))
+            return mean, covariance
+
+        mu, cov = jax.lax.cond(
+            return_cov_type == "dense",
+            _ret_full_cov,
+            _ret_diag_cov,
+            train_data.X,
+            train_data.y,
+            test_inputs,
+        )
+
+        return GaussianDistribution(loc=mu, scale=cov)
 
     def sample_approx(
         self,
@@ -560,14 +691,14 @@ class ConjugatePosterior(AbstractPosterior[P, GL]):
         can be evaluated with constant cost regardless of the required number of queries.
 
         Args:
-            num_samples (int): The desired number of samples.
-            key (KeyArray): The random seed used for the sample(s).
-            num_features (int): The number of features used when approximating the
-                kernel.
+        num_samples (int): The desired number of samples.
+        key (KeyArray): The random seed used for the sample(s).
+        num_features (int): The number of features used when approximating the
+        kernel.
 
         Returns:
-            FunctionalSample: A function representing an approximate sample from the Gaussian
-            process prior.
+        FunctionalSample: A function representing an approximate sample from the Gaussian
+        process prior.
         """
         if (not isinstance(num_samples, int)) or num_samples <= 0:
             raise ValueError("num_samples must be a positive integer")
@@ -584,9 +715,9 @@ class ConjugatePosterior(AbstractPosterior[P, GL]):
         y = train_data.y - self.prior.mean_function(train_data.X)
         Phi = fourier_feature_fn(train_data.X)
         canonical_weights = solve(
-            Sigma,
-            y + eps - jnp.inner(Phi, fourier_weights),
-        )  #  [N, B]
+        Sigma,
+        y + eps - jnp.inner(Phi, fourier_weights),
+        ) # [N, B]
 
         def sample_fn(test_inputs: Float[Array, "n D"]) -> Float[Array, "n B"]:
             fourier_features = fourier_feature_fn(test_inputs)
@@ -633,10 +764,10 @@ class NonConjugatePosterior(AbstractPosterior[P, NGL]):
         r"""Construct a non-conjugate Gaussian process posterior.
 
         Args:
-            prior (AbstractPrior): The prior distribution.
-            likelihood (AbstractLikelihood): The likelihood distribution.
-            jitter (float): A small constant added to the diagonal of the
-                covariance matrix to ensure numerical stability.
+        prior (AbstractPrior): The prior distribution.
+        likelihood (AbstractLikelihood): The likelihood distribution.
+        jitter (float): A small constant added to the diagonal of the
+        covariance matrix to ensure numerical stability.
         """
         super().__init__(prior=prior, likelihood=likelihood, jitter=jitter)
 
@@ -647,63 +778,124 @@ class NonConjugatePosterior(AbstractPosterior[P, NGL]):
         self.latent = latent if isinstance(latent, Parameter) else Real(latent)
         self.key = key
 
-    def predict(
-        self, test_inputs: Num[Array, "N D"], train_data: Dataset
-    ) -> GaussianDistribution:
-        r"""Query the predictive posterior distribution.
+        def predict(
+            self,
+            test_inputs: Num[Array, "N D"],
+            train_data: Dataset,
+            *,
+            return_cov_type: Literal["dense", "diagonal"] = "dense",
+        ) -> GaussianDistribution:
+            r"""Query the predictive posterior distribution.
 
-        Conditional on a set of training data, compute the GP's posterior
-        predictive distribution for a given set of parameters. The returned
-        function can be evaluated at a set of test inputs to compute the
-        corresponding predictive density. Note, to gain predictions on the scale
-        of the original data, the returned distribution will need to be
-        transformed through the likelihood function's inverse link function.
+            Conditional on a set of training data, compute the GP's posterior
+            predictive distribution for a given set of parameters. The returned
+            function can be evaluated at a set of test inputs to compute the
+            corresponding predictive density. Note, to gain predictions on the scale
+            of the original data, the returned distribution will need to be
+            transformed through the likelihood function's inverse link function.
 
-        Args:
+            Args:
+            test_inputs (Num[Array, "N D"]): A Jax array of test inputs at which the
+            predictive distribution is evaluated.
             train_data (Dataset): A `gpx.Dataset` object that contains the input
-                and output data used for training dataset.
+            and output data used for training dataset.
+            return_cov_type: Literal denoting whether to return the full covariance
+            of the joint predictive distribution at the test_inputs (dense)
+            or just the the standard-deviation of the predictive distribution at
+            the test_inputs.
 
-        Returns:
+            Returns:
             GaussianDistribution: A function that accepts an
-                input array and returns the predictive distribution as
-                a `dx.Distribution`.
-        """
-        # Unpack training data
-        x = train_data.X
+            input array and returns the predictive distribution as
+            a `dx.Distribution`.
+            """
 
-        # Unpack mean function and kernel
-        mean_function = self.prior.mean_function
-        kernel = self.prior.kernel
+            def _ret_full_cov(
+                x: Num[Array, "N D"],
+                t: Num[Array, "N D"],
+            ) -> Tuple[Float[Array, " N"], Dense]:
+                mean_function = self.prior.mean_function
+                kernel = self.prior.kernel
 
-        # Precompute lower triangular of Gram matrix, Lx, at training inputs, x
-        Kxx = kernel.gram(x)
-        Kxx_dense = add_jitter(Kxx.to_dense(), self.prior.jitter)
-        Kxx = psd(Dense(Kxx_dense))
-        Lx = lower_cholesky(Kxx)
+                # Precompute lower triangular of Gram matrix
+                Kxx = kernel.gram(x)
+                Kxx_dense = add_jitter(Kxx.to_dense(), self.prior.jitter)
+                Kxx = psd(Dense(Kxx_dense))
+                Lx = lower_cholesky(Kxx)
 
-        # Unpack test inputs
-        t = test_inputs
+                # Compute terms of the posterior predictive distribution
+                Ktx = kernel.cross_covariance(t, x)
+                Ktt = kernel.gram(t)
+                mean_t = mean_function(t)
 
-        # Compute terms of the posterior predictive distribution
-        Ktx = kernel.cross_covariance(t, x)
-        Ktt = kernel.gram(t)
-        mean_t = mean_function(t)
+                # Lx⁻¹ Kxt
+                Lx_inv_Kxt = solve(Lx, Ktx.T)
 
-        # Lx⁻¹ Kxt
-        Lx_inv_Kxt = solve(Lx, Ktx.T)
+                # Whitened function values, wx, corresponding to the inputs, x
+                wx = self.latent.value
 
-        # Whitened function values, wx, corresponding to the inputs, x
-        wx = self.latent.value
+                # μt + Ktx Lx⁻¹ wx
+                mean = mean_t + jnp.matmul(Lx_inv_Kxt.T, wx)
+                mean = jnp.atleast_1d(mean.squeeze())
 
-        # μt + Ktx Lx⁻¹ wx
-        mean = mean_t + jnp.matmul(Lx_inv_Kxt.T, wx)
+                # Ktt - Ktx Kxx⁻¹ Kxt, TODO: Take advantage of covariance structure
+                # to compute Schur complement more efficiently.
+                covariance = Ktt.to_dense() - jnp.matmul(Lx_inv_Kxt.T, Lx_inv_Kxt)
+                covariance = add_jitter(covariance, self.prior.jitter)
+                covariance = psd(Dense(covariance))
 
-        # Ktt - Ktx Kxx⁻¹ Kxt, TODO: Take advantage of covariance structure to compute Schur complement more efficiently.
-        covariance = Ktt.to_dense() - jnp.matmul(Lx_inv_Kxt.T, Lx_inv_Kxt)
-        covariance = add_jitter(covariance, self.prior.jitter)
-        covariance = psd(Dense(covariance))
+                return mean, covariance
 
-        return GaussianDistribution(jnp.atleast_1d(mean.squeeze()), covariance)
+            def _ret_diag_cov(
+                x: Num[Array, "N D"],
+                t: Num[Array, "N D"],
+            ) -> Tuple[Float[Array, " N"], Dense]:
+                mean_function = self.prior.mean_function
+                kernel = self.prior.kernel
+
+                # Precompute lower triangular of Gram matrix
+                Kxx = kernel.diagonal(x).diagonal
+                Kxx += self.prior.jitter
+                Kxx = psd(Diagonal(Kxx))
+                Lx = lower_cholesky(Kxx)
+
+                # Compute terms of the posterior predictive distribution
+                Ktx = kernel.cross_covariance(t, x)
+                Ktt = kernel.diagonal(t).diagonal[:, jnp.newaxis]
+                mean_t = mean_function(t)
+
+                # Lx⁻¹ Kxt
+                Lx_inv_Kxt_diag = jnp.diag(solve(Lx, Ktx.T))[:, jnp.newaxis]
+
+                # Whitened function values, wx, corresponding to the inputs, x
+                wx = self.latent.value
+
+                # μt + Ktx Lx⁻¹ wx
+                mean = mean_t + Lx_inv_Kxt_diag * wx
+                mean = jnp.atleast_1d(mean.squeeze())
+
+                # Ktt - Ktx Kxx⁻¹ Kxt, TODO: Take advantage of covariance structure
+                # to compute Schur complement more efficiently.
+                covariance = Ktt - jnp.square(Lx_inv_Kxt_diag)
+                covariance += self.prior.jitter
+                # It would be nice to return a Diagonal here, but the pytree needs
+                # to be the same for both cond branches and the other branch needs
+                # to return a Dense.
+                # They are both LinearOperators, but they inherit from that class
+                # and hence are not the same pytree anymore.
+                covariance = psd(Dense(jnp.diag(jnp.atleast_1d(covariance.squeeze()))))
+
+                return mean, covariance
+
+            mu, cov = jax.lax.cond(
+                return_cov_type == "dense",
+                _ret_full_cov,
+                _ret_diag_cov,
+                train_data.X,
+                test_inputs,
+            )
+
+            return GaussianDistribution(mu, cov)
 
 
 #######################
