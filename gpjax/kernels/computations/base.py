@@ -48,56 +48,51 @@ class AbstractKernelComputation:
     def _gram(
         self,
         kernel: K,
-        inputs: Num[Array, "N D"],
+        x: Num[Array, "N D"],
     ) -> Float[Array, "N N"]:
-        return self.cross_covariance(kernel, inputs, inputs)
+        Kxx = self.cross_covariance(kernel, x, x)
+        return Kxx
 
     def gram(
         self,
         kernel: K,
-        inputs: Num[Array, "N D"],
+        x: Num[Array, "N D"],
     ) -> Dense:
         r"""For a given kernel, compute Gram covariance operator of the kernel function
         on an input matrix of shape `(N, D)`.
 
         Args:
             kernel: the kernel function.
-            inputs: the inputs to the kernel function of shape `(N, D)`.
+            x: the inputs to the kernel function of shape `(N, D)`.
 
         Returns:
             The Gram covariance of the kernel function as a linear operator.
         """
-        Kxx = self._gram(kernel, inputs)
+        Kxx = self.cross_covariance(kernel, x, x)
         return psd(Dense(Kxx))
 
     @abc.abstractmethod
     def _cross_covariance(
-        self,
-        kernel: K,
-        first_inputs: Num[Array, "N D"],
-        second_inputs: Num[Array, "M D"],
+        self, kernel: K, x: Num[Array, "N D"], y: Num[Array, "M D"]
     ) -> Float[Array, "N M"]: ...
 
     def cross_covariance(
-        self,
-        kernel: K,
-        first_inputs: Num[Array, "N D"],
-        second_inputs: Num[Array, "M D"],
+        self, kernel: K, x: Num[Array, "N D"], y: Num[Array, "M D"]
     ) -> Float[Array, "N M"]:
         r"""For a given kernel, compute the cross-covariance matrix on an a pair
         of input matrices with shape `(N, D)` and `(M, D)`.
 
         Args:
             kernel: the kernel function.
-            first_inputs: the first input matrix of shape `(N, D)`.
-            second_inputs: the second input matrix of shape `(M, D)`.
+            x: the first input matrix of shape `(N, D)`.
+            y: the second input matrix of shape `(M, D)`.
 
         Returns:
             The computed cross-covariance of shape `(N, M)`.
         """
-        return self._cross_covariance(kernel, first_inputs, second_inputs)
+        return self._cross_covariance(kernel, x, y)
 
-    def _diagonal(self, kernel: K, inputs: Num[Array, "N D"]) -> Float[Array, "N N"]:
+    def _diagonal(self, kernel: K, inputs: Num[Array, "N D"]) -> Diagonal:
         return psd(Diagonal(vmap(lambda x: kernel(x, x))(inputs)))
 
     def diagonal(self, kernel: K, inputs: Num[Array, "N D"]) -> Diagonal:
