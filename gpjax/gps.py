@@ -283,32 +283,31 @@ class Prior(AbstractPrior[M, K]):
         of the Gaussian process.
         """
 
-        def _ret_full_cov(
+        def _return_full_covariance(
             t: Num[Array, "N D"],
-        ) -> tuple[Float[Array, " N"], LinearOperator]:
-            mean_at_test = self.mean_function(t)
+        ) -> LinearOperator:
             Kxx = self.kernel.gram(t)
             Kxx_dense = add_jitter(Kxx.to_dense(), self.jitter)
             Kxx = psd(Dense(Kxx_dense))
-            return jnp.atleast_1d(mean_at_test.squeeze()), Kxx
+            return Kxx
 
-        def _ret_diag_cov(
+        def _return_diagonal_covariance(
             t: Num[Array, "N D"],
-        ) -> tuple[Float[Array, " N"], LinearOperator]:
-            mean_at_test = self.mean_function(t)
+        ) -> LinearOperator:
             Kxx = self.kernel.diagonal(t).diagonal
             Kxx += self.jitter
             Kxx = psd(Dense(Diagonal(Kxx).to_dense()))
             return jnp.atleast_1d(mean_at_test.squeeze()), Kxx
 
-        mu, cov = jax.lax.cond(
+        mean_at_test = self.mean_function(t)
+        cov = jax.lax.cond(
             return_covariance_type == "dense",
-            _ret_full_cov,
-            _ret_diag_cov,
+            _return_full_covariance,
+            _return_diagonal_covariance,
             test_inputs,
         )
 
-        return GaussianDistribution(loc=mu, scale=cov)
+        return GaussianDistribution(loc=jnp.atleast_1d(mean_at_test.squeeze()), scale=cov)
 
     def sample_approx(
         self,
@@ -575,7 +574,7 @@ class ConjugatePosterior(AbstractPosterior[P, GL]):
         returns the predictive distribution as a `GaussianDistribution`.
         """
 
-        def _ret_full_cov(
+        def _return_mean_and_full_covariance(
             x: Num[Array, "N D"],
             y: Num[Array, "N Q"],
             t: Num[Array, "N D"],
@@ -607,7 +606,7 @@ class ConjugatePosterior(AbstractPosterior[P, GL]):
             covariance = psd(Dense(covariance))
             return mean, covariance
 
-        def _ret_diag_cov(
+        def _return_mean_and_diagonal_covariance(
             x: Num[Array, "N D"],
             y: Num[Array, "N Q"],
             t: Num[Array, "N D"],
@@ -643,8 +642,8 @@ class ConjugatePosterior(AbstractPosterior[P, GL]):
 
         mu, cov = jax.lax.cond(
             return_covariance_type == "dense",
-            _ret_full_cov,
-            _ret_diag_cov,
+            _return_mean_and_full_covariance,
+            _return_mean_and_diagonal_covariance,
             train_data.X,
             train_data.y,
             test_inputs,
@@ -806,7 +805,7 @@ class NonConjugatePosterior(AbstractPosterior[P, NGL]):
         a `dx.Distribution`.
         """
 
-        def _ret_full_cov(
+        def _return_mean_and_full_covariance(
             x: Num[Array, "N D"],
             t: Num[Array, "N D"],
         ) -> tuple[Float[Array, " N"], Dense]:
@@ -842,7 +841,7 @@ class NonConjugatePosterior(AbstractPosterior[P, NGL]):
 
             return mean, covariance
 
-        def _ret_diag_cov(
+        def _return_mean_and_diagonal_covariance(
             x: Num[Array, "N D"],
             t: Num[Array, "N D"],
         ) -> tuple[Float[Array, " N"], Dense]:
@@ -885,7 +884,7 @@ class NonConjugatePosterior(AbstractPosterior[P, NGL]):
 
         mu, cov = jax.lax.cond(
             return_covariance_type == "dense",
-            _ret_full_cov,
+            _return_mean_and_diagonal_covariance,
             _ret_diag_cov,
             train_data.X,
             test_inputs,
