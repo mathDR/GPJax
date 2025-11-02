@@ -15,6 +15,7 @@
 # from __future__ import annotations
 
 from abc import abstractmethod
+from typing import Literal
 
 import beartype.typing as tp
 from flax import nnx
@@ -87,7 +88,7 @@ class AbstractPrior(nnx.Module, tp.Generic[M, K]):
         self,
         test_inputs: Num[Array, "N D"],
         *,
-        return_covariance_type: tp.Literal["dense", "diagonal"] = "dense",
+        return_covariance_type: Literal["dense", "diagonal"] = "dense",
     ) -> GaussianDistribution:
         r"""Evaluate the Gaussian process at the given points.
 
@@ -102,7 +103,7 @@ class AbstractPrior(nnx.Module, tp.Generic[M, K]):
 
         Args:
         test_inputs: Input locations where the GP should be evaluated.
-        return_covariance_type: tp.Literal denoting whether to return the full covariance
+        return_covariance_type: Literal denoting whether to return the full covariance
         of the joint predictive distribution at the test_inputs (dense)
         or just the the standard-deviation of the predictive distribution at
         the test_inputs.
@@ -121,7 +122,7 @@ class AbstractPrior(nnx.Module, tp.Generic[M, K]):
         self,
         test_inputs: Num[Array, "N D"],
         *,
-        return_covariance_type: tp.Literal["dense", "diagonal"] = "dense",
+        return_covariance_type: Literal["dense", "diagonal"] = "dense",
     ) -> GaussianDistribution:
         r"""Evaluate the predictive distribution.
 
@@ -131,7 +132,7 @@ class AbstractPrior(nnx.Module, tp.Generic[M, K]):
 
         Args:
         test_inputs: Input locations where the GP should be evaluated.
-        return_covariance_type: tp.Literal denoting whether to return the full covariance
+        return_covariance_type: Literal denoting whether to return the full covariance
         of the joint predictive distribution at the test_inputs (dense)
         or just the the standard-deviation of the predictive distribution at
         the test_inputs.
@@ -251,7 +252,7 @@ class Prior(AbstractPrior[M, K]):
         self,
         test_inputs: Num[Array, "N D"],
         *,
-        return_covariance_type: tp.Literal["dense", "diagonal"] = "dense",
+        return_covariance_type: Literal["dense", "diagonal"] = "dense",
     ) -> GaussianDistribution:
         r"""Compute the predictive prior distribution for a given set of
         parameters. The output of this function is a function that computes
@@ -273,7 +274,7 @@ class Prior(AbstractPrior[M, K]):
         Args:
         test_inputs (Float[Array, "N D"]): The inputs at which to evaluate the
         prior distribution.
-        return_covariance_type: tp.Literal denoting whether to return the full covariance
+        return_covariance_type: Literal denoting whether to return the full covariance
         of the joint predictive distribution at the test_inputs (dense)
         or just the the standard-deviation of the predictive distribution at
         the test_inputs.
@@ -416,7 +417,7 @@ class AbstractPosterior(nnx.Module, tp.Generic[P, L]):
         test_inputs: Num[Array, "N D"],
         train_data: Dataset,
         *,
-        return_covariance_type: tp.Literal["dense", "diagonal"] = "dense",
+        return_covariance_type: Literal["dense", "diagonal"] = "dense",
     ) -> GaussianDistribution:
         r"""Evaluate the Gaussian process posterior at the given points.
 
@@ -432,7 +433,7 @@ class AbstractPosterior(nnx.Module, tp.Generic[P, L]):
         Args:
         test_inputs: Input locations where the GP should be evaluated.
         train_data: Training dataset to condition on.
-        return_covariance_type: tp.Literal denoting whether to return the full covariance
+        return_covariance_type: Literal denoting whether to return the full covariance
         of the joint predictive distribution at the test_inputs (dense)
         or just the the standard-deviation of the predictive distribution at
         the test_inputs.
@@ -453,7 +454,7 @@ class AbstractPosterior(nnx.Module, tp.Generic[P, L]):
         test_inputs: Num[Array, "N D"],
         train_data: Dataset,
         *,
-        return_covariance_type: tp.Literal["dense", "diagonal"] = "dense",
+        return_covariance_type: Literal["dense", "diagonal"] = "dense",
     ) -> GaussianDistribution:
         r"""Compute the latent function's multivariate normal distribution for a
         given set of parameters. For any class inheriting the `AbstractPosterior` class,
@@ -462,7 +463,7 @@ class AbstractPosterior(nnx.Module, tp.Generic[P, L]):
         Args:
         test_inputs: Input locations where the GP should be evaluated.
         train_data: Training dataset to condition on.
-        return_covariance_type: tp.Literal denoting whether to return the full covariance
+        return_covariance_type: Literal denoting whether to return the full covariance
         of the joint predictive distribution at the test_inputs (dense)
         or just the the standard-deviation of the predictive distribution at
         the test_inputs.
@@ -521,7 +522,7 @@ class ConjugatePosterior(AbstractPosterior[P, GL]):
         test_inputs: Num[Array, "N D"],
         train_data: Dataset,
         *,
-        return_covariance_type: tp.Literal["dense", "diagonal"] = "dense",
+        return_covariance_type: Literal["dense", "diagonal"] = "dense",
     ) -> GaussianDistribution:
         r"""Query the predictive posterior distribution.
 
@@ -564,7 +565,7 @@ class ConjugatePosterior(AbstractPosterior[P, GL]):
         predictive distribution is evaluated.
         train_data (Dataset): A `gpx.Dataset` object that contains the input and
         output data used for training dataset.
-        return_covariance_type: tp.Literal denoting whether to return the full covariance
+        return_covariance_type: Literal denoting whether to return the full covariance
         of the joint predictive distribution at the test_inputs (dense)
         or just the the standard-deviation of the predictive distribution at
         the test_inputs.
@@ -778,7 +779,7 @@ class NonConjugatePosterior(AbstractPosterior[P, NGL]):
         test_inputs: Num[Array, "N D"],
         train_data: Dataset,
         *,
-        return_covariance_type: tp.Literal["dense", "diagonal"] = "dense",
+        return_covariance_type: Literal["dense", "diagonal"] = "dense",
     ) -> GaussianDistribution:
         r"""Query the predictive posterior distribution.
 
@@ -794,7 +795,7 @@ class NonConjugatePosterior(AbstractPosterior[P, NGL]):
         predictive distribution is evaluated.
         train_data (Dataset): A `gpx.Dataset` object that contains the input
         and output data used for training dataset.
-        return_covariance_type: tp.Literal denoting whether to return the full covariance
+        return_covariance_type: Literal denoting whether to return the full covariance
         of the joint predictive distribution at the test_inputs (dense)
         or just the the standard-deviation of the predictive distribution at
         the test_inputs.
