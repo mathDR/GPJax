@@ -308,7 +308,9 @@ class Prior(AbstractPrior[M, K]):
             test_inputs,
         )
 
-        return GaussianDistribution(loc=jnp.atleast_1d(mean_at_test.squeeze()), scale=cov)
+        return GaussianDistribution(
+            loc=jnp.atleast_1d(mean_at_test.squeeze()), scale=cov
+        )
 
     def sample_approx(
         self,
