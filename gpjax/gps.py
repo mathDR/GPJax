@@ -15,10 +15,7 @@
 # from __future__ import annotations
 
 from abc import abstractmethod
-from typing import (
-    Literal,
-    Tuple,
-)
+from typing import Literal
 
 import beartype.typing as tp
 from flax import nnx
@@ -289,7 +286,7 @@ class Prior(AbstractPrior[M, K]):
 
         def _ret_full_cov(
             t: Num[Array, "N D"],
-        ) -> Tuple[Float[Array, " N"], LinearOperator]:
+        ) -> tuple[Float[Array, " N"], LinearOperator]:
             mean_at_test = self.mean_function(t)
             Kxx = self.kernel.gram(t)
             Kxx_dense = add_jitter(Kxx.to_dense(), self.jitter)
@@ -298,7 +295,7 @@ class Prior(AbstractPrior[M, K]):
 
         def _ret_diag_cov(
             t: Num[Array, "N D"],
-        ) -> Tuple[Float[Array, " N"], LinearOperator]:
+        ) -> tuple[Float[Array, " N"], LinearOperator]:
             mean_at_test = self.mean_function(t)
             Kxx = self.kernel.diagonal(t).diagonal
             Kxx += self.jitter
@@ -583,7 +580,7 @@ class ConjugatePosterior(AbstractPosterior[P, GL]):
             x: Num[Array, "N D"],
             y: Num[Array, "N Q"],
             t: Num[Array, "N D"],
-        ) -> Tuple[Float[Array, " N"], LinearOperator]:
+        ) -> tuple[Float[Array, " N"], LinearOperator]:
             # Observation noise o²
             obs_noise = jnp.square(self.likelihood.obs_stddev.value)
             mx = self.prior.mean_function(x)
@@ -615,7 +612,7 @@ class ConjugatePosterior(AbstractPosterior[P, GL]):
             x: Num[Array, "N D"],
             y: Num[Array, "N Q"],
             t: Num[Array, "N D"],
-        ) -> Tuple[Float[Array, " N"], LinearOperator]:
+        ) -> tuple[Float[Array, " N"], LinearOperator]:
             # Observation noise o²
             obs_noise = jnp.square(self.likelihood.obs_stddev.value)
             mx = self.prior.mean_function(x)
@@ -813,7 +810,7 @@ class NonConjugatePosterior(AbstractPosterior[P, NGL]):
         def _ret_full_cov(
             x: Num[Array, "N D"],
             t: Num[Array, "N D"],
-        ) -> Tuple[Float[Array, " N"], Dense]:
+        ) -> tuple[Float[Array, " N"], Dense]:
             mean_function = self.prior.mean_function
             kernel = self.prior.kernel
 
@@ -849,7 +846,7 @@ class NonConjugatePosterior(AbstractPosterior[P, NGL]):
         def _ret_diag_cov(
             x: Num[Array, "N D"],
             t: Num[Array, "N D"],
-        ) -> Tuple[Float[Array, " N"], Dense]:
+        ) -> tuple[Float[Array, " N"], Dense]:
             mean_function = self.prior.mean_function
             kernel = self.prior.kernel
 
