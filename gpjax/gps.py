@@ -286,7 +286,7 @@ class Prior(AbstractPrior[M, K]):
 
         def _return_full_covariance(
             t: Num[Array, "N D"],
-        ) -> LinearOperator:
+        ) -> Dense:
             Kxx = self.kernel.gram(t)
             Kxx_dense = add_jitter(Kxx.to_dense(), self.jitter)
             Kxx = psd(Dense(Kxx_dense))
@@ -294,13 +294,13 @@ class Prior(AbstractPrior[M, K]):
 
         def _return_diagonal_covariance(
             t: Num[Array, "N D"],
-        ) -> LinearOperator:
+        ) -> Dense:
             Kxx = self.kernel.diagonal(t).diagonal
             Kxx += self.jitter
             Kxx = psd(Dense(Diagonal(Kxx).to_dense()))
-            return jnp.atleast_1d(mean_at_test.squeeze()), Kxx
+            return Kxx
 
-        mean_at_test = self.mean_function(t)
+        mean_at_test = self.mean_function(test_inputs)
         cov = jax.lax.cond(
             return_covariance_type == "dense",
             _return_full_covariance,
@@ -887,8 +887,8 @@ class NonConjugatePosterior(AbstractPosterior[P, NGL]):
 
         mu, cov = jax.lax.cond(
             return_covariance_type == "dense",
+            _return_mean_and_full_covariance,
             _return_mean_and_diagonal_covariance,
-            _ret_diag_cov,
             train_data.X,
             test_inputs,
         )
