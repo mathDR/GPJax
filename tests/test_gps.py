@@ -92,7 +92,7 @@ def test_prior_with_diag(
 
     # Query a marginal distribution at some inputs.
     inputs = jnp.linspace(-3.0, 3.0, num_datapoints).reshape(-1, 1)
-    marginal_distribution = prior(inputs, return_cov_type="diagonal")
+    marginal_distribution = prior(inputs, return_covariance_type="diagonal")
 
     # Ensure that the marginal distribution is a Gaussian.
     assert isinstance(marginal_distribution, GaussianDistribution)
@@ -164,7 +164,7 @@ def test_conjugate_posterior_with_diag(
 
     # Query a marginal distribution of the posterior at some inputs.
     inputs = jnp.linspace(-3.0, 3.0, num_datapoints).reshape(-1, 1)
-    marginal_distribution = posterior(inputs, D, return_cov_type="diagonal")
+    marginal_distribution = posterior(inputs, D, return_covariance_type="diagonal")
 
     # Ensure that the marginal distribution is a Gaussian.
     assert isinstance(marginal_distribution, GaussianDistribution)
@@ -251,7 +251,7 @@ def test_nonconjugate_posterior_with_diag(
 
     # Query a marginal distribution of the posterior at some inputs.
     inputs = jnp.linspace(-3.0, 3.0, num_datapoints).reshape(-1, 1)
-    marginal_distribution = posterior(inputs, D, return_cov_type="diagonal")
+    marginal_distribution = posterior(inputs, D, return_covariance_type="diagonal")
 
     # Ensure that the marginal distribution is a Gaussian.
     assert isinstance(marginal_distribution, GaussianDistribution)
