@@ -77,8 +77,8 @@ class AbstractPrior(nnx.Module, tp.Generic[M, K]):
         r"""Construct a Gaussian process prior.
 
         Args:
-        kernel: kernel object inheriting from AbstractKernel.
-        mean_function: mean function object inheriting from AbstractMeanFunction.
+            kernel: kernel object inheriting from AbstractKernel.
+            mean_function: mean function object inheriting from AbstractMeanFunction.
         """
         self.kernel = kernel
         self.mean_function = mean_function
@@ -100,17 +100,17 @@ class AbstractPrior(nnx.Module, tp.Generic[M, K]):
         Under the hood, `__call__` is calling the objects `predict` method. For this
         reasons, classes inheriting the `AbstractPrior` class, should not overwrite the
         `__call__` method and should instead define a `predict` method.
-
+        
         Args:
-        test_inputs: Input locations where the GP should be evaluated.
-        return_covariance_type: Literal denoting whether to return the full covariance
-        of the joint predictive distribution at the test_inputs (dense)
-        or just the the standard-deviation of the predictive distribution at
-        the test_inputs.
+            test_inputs: Input locations where the GP should be evaluated.
+            return_covariance_type: Literal denoting whether to return the full covariance
+                of the joint predictive distribution at the test_inputs (dense)
+                or just the the standard-deviation of the predictive distribution at
+                the test_inputs.
 
         Returns:
-        GaussianDistribution: A multivariate normal random variable representation
-        of the Gaussian process.
+            GaussianDistribution: A multivariate normal random variable representation
+                of the Gaussian process.
         """
         return self.predict(
             test_inputs,
@@ -131,15 +131,15 @@ class AbstractPrior(nnx.Module, tp.Generic[M, K]):
         this method must be implemented.
 
         Args:
-        test_inputs: Input locations where the GP should be evaluated.
-        return_covariance_type: Literal denoting whether to return the full covariance
-        of the joint predictive distribution at the test_inputs (dense)
-        or just the the standard-deviation of the predictive distribution at
-        the test_inputs.
+            test_inputs: Input locations where the GP should be evaluated.
+            return_covariance_type: Literal denoting whether to return the full covariance
+                of the joint predictive distribution at the test_inputs (dense)
+                or just the the standard-deviation of the predictive distribution at
+                the test_inputs.
 
         Returns:
-        GaussianDistribution: A multivariate normal random variable representation
-        of the Gaussian process.
+            GaussianDistribution: A multivariate normal random variable representation
+                of the Gaussian process.
         """
         raise NotImplementedError
 
@@ -207,12 +207,12 @@ class Prior(AbstractPrior[M, K]):
             >>> prior * likelihood
         ```
         Args:
-        other (Likelihood): The likelihood distribution of the observed dataset.
+            other (Likelihood): The likelihood distribution of the observed dataset.
 
         Returns
-        Posterior: The relevant GP posterior for the given prior and
-        likelihood. Special cases are accounted for where the model
-        is conjugate.
+            Posterior: The relevant GP posterior for the given prior and
+                likelihood. Special cases are accounted for where the model
+                is conjugate.
         """
         return construct_posterior(prior=self, likelihood=other)
 
@@ -238,13 +238,13 @@ class Prior(AbstractPrior[M, K]):
         product of a likelihood and a prior i.e., likelihood * prior.
 
         Args:
-        other (Likelihood): The likelihood distribution of the observed
-        dataset.
+            other (Likelihood): The likelihood distribution of the observed
+                dataset.
 
         Returns
-        Posterior: The relevant GP posterior for the given prior and
-        likelihood. Special cases are accounted for where the model
-        is conjugate.
+            Posterior: The relevant GP posterior for the given prior and
+                likelihood. Special cases are accounted for where the model
+                is conjugate.
         """
         return self.__mul__(other)
 
@@ -272,16 +272,16 @@ class Prior(AbstractPrior[M, K]):
         ```
 
         Args:
-        test_inputs (Float[Array, "N D"]): The inputs at which to evaluate the
-        prior distribution.
-        return_covariance_type: Literal denoting whether to return the full covariance
-        of the joint predictive distribution at the test_inputs (dense)
-        or just the the standard-deviation of the predictive distribution at
-        the test_inputs.
+            test_inputs (Float[Array, "N D"]): The inputs at which to evaluate the
+                prior distribution.
+            return_covariance_type: Literal denoting whether to return the full covariance
+                of the joint predictive distribution at the test_inputs (dense)
+                or just the the standard-deviation of the predictive distribution at
+                the test_inputs.
 
         Returns:
-        GaussianDistribution: A multivariate normal random variable representation
-        of the Gaussian process.
+            GaussianDistribution: A multivariate normal random variable representation
+                of the Gaussian process.
         """
 
         def _return_full_covariance(
@@ -358,14 +358,14 @@ class Prior(AbstractPrior[M, K]):
         ```
 
         Args:
-        num_samples (int): The desired number of samples.
-        key (KeyArray): The random seed used for the sample(s).
-        num_features (int): The number of features used when approximating the
-        kernel.
+            num_samples (int): The desired number of samples.
+            key (KeyArray): The random seed used for the sample(s).
+            num_features (int): The number of features used when approximating the
+                kernel.
 
         Returns:
-        FunctionalSample: A function representing an approximate sample from the
-        Gaussian process prior.
+            FunctionalSample: A function representing an approximate sample from the
+                Gaussian process prior.
         """
 
         if (not isinstance(num_samples, int)) or num_samples <= 0:
@@ -405,10 +405,10 @@ class AbstractPosterior(nnx.Module, tp.Generic[P, L]):
         r"""Construct a Gaussian process posterior.
 
         Args:
-        prior (AbstractPrior): The prior distribution.
-        likelihood (AbstractLikelihood): The likelihood distribution.
-        jitter (float): A small constant added to the diagonal of the
-        covariance matrix to ensure numerical stability.
+            prior (AbstractPrior): The prior distribution.
+            likelihood (AbstractLikelihood): The likelihood distribution.
+            jitter (float): A small constant added to the diagonal of the
+                covariance matrix to ensure numerical stability.
         """
         self.prior = prior
         self.likelihood = likelihood
@@ -433,16 +433,16 @@ class AbstractPosterior(nnx.Module, tp.Generic[P, L]):
         `__call__` method and should instead define a `predict` method.
 
         Args:
-        test_inputs: Input locations where the GP should be evaluated.
-        train_data: Training dataset to condition on.
-        return_covariance_type: Literal denoting whether to return the full covariance
-        of the joint predictive distribution at the test_inputs (dense)
-        or just the the standard-deviation of the predictive distribution at
-        the test_inputs.
+            test_inputs: Input locations where the GP should be evaluated.
+            train_data: Training dataset to condition on.
+            return_covariance_type: Literal denoting whether to return the full covariance
+                of the joint predictive distribution at the test_inputs (dense)
+                or just the the standard-deviation of the predictive distribution at
+                the test_inputs.
 
         Returns:
-        GaussianDistribution: A multivariate normal random variable representation
-        of the Gaussian process.
+            GaussianDistribution: A multivariate normal random variable representation
+                of the Gaussian process.
         """
         return self.predict(
             test_inputs,
@@ -463,16 +463,16 @@ class AbstractPosterior(nnx.Module, tp.Generic[P, L]):
         this method must be implemented.
 
         Args:
-        test_inputs: Input locations where the GP should be evaluated.
-        train_data: Training dataset to condition on.
-        return_covariance_type: Literal denoting whether to return the full covariance
-        of the joint predictive distribution at the test_inputs (dense)
-        or just the the standard-deviation of the predictive distribution at
-        the test_inputs.
+            test_inputs: Input locations where the GP should be evaluated.
+            train_data: Training dataset to condition on.
+            return_covariance_type: Literal denoting whether to return the full covariance
+                of the joint predictive distribution at the test_inputs (dense)
+                or just the the standard-deviation of the predictive distribution at
+                the test_inputs.
 
         Returns:
-        GaussianDistribution: A multivariate normal random variable representation
-        of the Gaussian process.
+            GaussianDistribution: A multivariate normal random variable representation
+                of the Gaussian process.
         """
         raise NotImplementedError
 
@@ -563,18 +563,18 @@ class ConjugatePosterior(AbstractPosterior[P, GL]):
         ```
 
         Args:
-        test_inputs (Num[Array, "N D"]): A Jax array of test inputs at which the
-        predictive distribution is evaluated.
-        train_data (Dataset): A `gpx.Dataset` object that contains the input and
-        output data used for training dataset.
-        return_covariance_type: Literal denoting whether to return the full covariance
-        of the joint predictive distribution at the test_inputs (dense)
-        or just the the standard-deviation of the predictive distribution at
-        the test_inputs.
+            test_inputs (Num[Array, "N D"]): A Jax array of test inputs at which the
+                predictive distribution is evaluated.
+            train_data (Dataset): A `gpx.Dataset` object that contains the input and
+                output data used for training dataset.
+            return_covariance_type: Literal denoting whether to return the full covariance
+                of the joint predictive distribution at the test_inputs (dense)
+                or just the the standard-deviation of the predictive distribution at
+                the test_inputs.
 
         Returns:
-        GaussianDistribution: A function that accepts an input array and
-        returns the predictive distribution as a `GaussianDistribution`.
+            GaussianDistribution: A function that accepts an input array and
+                returns the predictive distribution as a `GaussianDistribution`.
         """
 
         def _return_mean_and_full_covariance(
@@ -689,14 +689,14 @@ class ConjugatePosterior(AbstractPosterior[P, GL]):
         can be evaluated with constant cost regardless of the required number of queries.
 
         Args:
-        num_samples (int): The desired number of samples.
-        key (KeyArray): The random seed used for the sample(s).
-        num_features (int): The number of features used when approximating the
-        kernel.
+            num_samples (int): The desired number of samples.
+            key (KeyArray): The random seed used for the sample(s).
+            num_features (int): The number of features used when approximating the
+                kernel.
 
         Returns:
-        FunctionalSample: A function representing an approximate sample from the Gaussian
-        process prior.
+            FunctionalSample: A function representing an approximate sample from the Gaussian
+                process prior.
         """
         if (not isinstance(num_samples, int)) or num_samples <= 0:
             raise ValueError("num_samples must be a positive integer")
@@ -762,10 +762,10 @@ class NonConjugatePosterior(AbstractPosterior[P, NGL]):
         r"""Construct a non-conjugate Gaussian process posterior.
 
         Args:
-        prior (AbstractPrior): The prior distribution.
-        likelihood (AbstractLikelihood): The likelihood distribution.
-        jitter (float): A small constant added to the diagonal of the
-        covariance matrix to ensure numerical stability.
+            prior (AbstractPrior): The prior distribution.
+            likelihood (AbstractLikelihood): The likelihood distribution.
+            jitter (float): A small constant added to the diagonal of the
+                covariance matrix to ensure numerical stability.
         """
         super().__init__(prior=prior, likelihood=likelihood, jitter=jitter)
 
@@ -794,18 +794,18 @@ class NonConjugatePosterior(AbstractPosterior[P, NGL]):
 
         Args:
         test_inputs (Num[Array, "N D"]): A Jax array of test inputs at which the
-        predictive distribution is evaluated.
+            predictive distribution is evaluated.
         train_data (Dataset): A `gpx.Dataset` object that contains the input
-        and output data used for training dataset.
+            and output data used for training dataset.
         return_covariance_type: Literal denoting whether to return the full covariance
-        of the joint predictive distribution at the test_inputs (dense)
-        or just the the standard-deviation of the predictive distribution at
-        the test_inputs.
+            of the joint predictive distribution at the test_inputs (dense)
+            or just the the standard-deviation of the predictive distribution at
+            the test_inputs.
 
         Returns:
-        GaussianDistribution: A function that accepts an
-        input array and returns the predictive distribution as
-        a `dx.Distribution`.
+            GaussianDistribution: A function that accepts an
+                input array and returns the predictive distribution as
+                a `dx.Distribution`.
         """
 
         def _return_mean_and_full_covariance(
