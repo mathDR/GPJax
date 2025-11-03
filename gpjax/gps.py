@@ -100,7 +100,7 @@ class AbstractPrior(nnx.Module, tp.Generic[M, K]):
         Under the hood, `__call__` is calling the objects `predict` method. For this
         reasons, classes inheriting the `AbstractPrior` class, should not overwrite the
         `__call__` method and should instead define a `predict` method.
-        
+
         Args:
             test_inputs: Input locations where the GP should be evaluated.
             return_covariance_type: Literal denoting whether to return the full covariance
