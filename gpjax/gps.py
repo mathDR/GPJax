@@ -521,7 +521,7 @@ class ConjugatePosterior(AbstractPosterior[P, GL]):
 
     def predict(
         self,
-        test_inputs: Num[Array, "N D"],
+        test_inputs: Num[Array, "M D"],
         train_data: Dataset,
         *,
         return_covariance_type: Literal["dense", "diagonal"] = "dense",
@@ -576,15 +576,17 @@ class ConjugatePosterior(AbstractPosterior[P, GL]):
             GaussianDistribution: A function that accepts an input array and
                 returns the predictive distribution as a `GaussianDistribution`.
         """
+        # Observation noise o²
+        obs_noise = jnp.square(self.likelihood.obs_stddev.value)
+        mx = self.prior.mean_function(x)
+        Kxt = self.prior.kernel.cross_covariance(x, t)
+        mean_t = self.prior.mean_function(t)
 
-        def _return_mean_and_full_covariance(
+        def _return_full_covariance(
             x: Num[Array, "N D"],
             y: Num[Array, "N Q"],
-            t: Num[Array, "N D"],
-        ) -> tuple[Float[Array, " N"], LinearOperator]:
-            # Observation noise o²
-            obs_noise = jnp.square(self.likelihood.obs_stddev.value)
-            mx = self.prior.mean_function(x)
+            t: Num[Array, "M D"],
+        ) -> Dense:
 
             # Precompute Gram matrix, Kxx, at training inputs, x
             Kxx = self.prior.kernel.gram(x)
@@ -594,9 +596,9 @@ class ConjugatePosterior(AbstractPosterior[P, GL]):
             Sigma = psd(Dense(Sigma_dense))
             L_sigma = lower_cholesky(Sigma)
 
-            mean_t = self.prior.mean_function(t)
+            
             Ktt = self.prior.kernel.gram(t)
-            Kxt = self.prior.kernel.cross_covariance(x, t)
+            
 
             L_inv_Kxt = solve(L_sigma, Kxt)
             L_inv_y_diff = solve(L_sigma, y - mx)
@@ -609,14 +611,12 @@ class ConjugatePosterior(AbstractPosterior[P, GL]):
             covariance = psd(Dense(covariance))
             return mean, covariance
 
-        def _return_mean_and_diagonal_covariance(
+        def _return_diagonal_covariance(
             x: Num[Array, "N D"],
             y: Num[Array, "N Q"],
-            t: Num[Array, "N D"],
-        ) -> tuple[Float[Array, " N"], LinearOperator]:
+            t: Num[Array, "M D"],
+        ) -> Dense:
             # Observation noise o²
-            obs_noise = jnp.square(self.likelihood.obs_stddev.value)
-            mx = self.prior.mean_function(x)
 
             # Precompute Gram matrix, Kxx, at training inputs, x
             Kxx = self.prior.kernel.diagonal(x).diagonal
@@ -627,18 +627,15 @@ class ConjugatePosterior(AbstractPosterior[P, GL]):
             L_sigma = lower_cholesky(Sigma)
 
             mean_t = self.prior.mean_function(t)
-            Ktt = self.prior.kernel.diagonal(t).diagonal[:, jnp.newaxis]
-            Kxt = self.prior.kernel.cross_covariance(x, t)
+            Ktt = self.prior.kernel.diagonal(t).diagonal
+            
+            L_inv_Kxt = solve(L_sigma, Kxt)
+            L_inv_y_diff = solve(L_sigma, y - mx)
 
-            # TODO: The following are all diagonal solves, so we can just
-            # do vector addition as needed. We should furthermore return
-            # a Diagonal covariance and not a Dense.
-            L_inv_Kxt_diag = jnp.diag(solve(L_sigma, Kxt))[:, jnp.newaxis]
-            L_inv_y_diff_diag = jnp.diag(solve(L_sigma, y - mx))[:, jnp.newaxis]
-
-            mean = mean_t + L_inv_Kxt_diag * L_inv_y_diff_diag
+            mean = mean_t + jnp.matmul(L_inv_Kxt.T, L_inv_y_diff)
             mean = jnp.atleast_1d(mean.squeeze())
-            covariance = Ktt - jnp.square(L_inv_Kxt_diag)
+
+            covariance = Ktt - jnp.einsum("ij, ji->i", L_inv_Kxt.T, L_inv_Kxt)
             covariance += self.prior.jitter
             covariance = psd(Dense(jnp.diag(jnp.atleast_1d(covariance.squeeze()))))
             return mean, covariance
