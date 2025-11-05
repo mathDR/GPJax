@@ -46,6 +46,10 @@ from gpjax.kernels.stationary import (
     RationalQuadratic,
     White,
 )
+from gpjax.kernels.multioutput import (
+    MultioutputKernel,
+    SharedIndependent
+)
 
 __all__ = [
     "AbstractKernel",
@@ -71,4 +75,6 @@ __all__ = [
     "BasisFunctionComputation",
     "RFF",
     "stationary",
+    "MultioutputKernel",
+    "SharedIndependent",
 ]
