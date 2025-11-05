@@ -43,7 +43,6 @@ from gpjax.linalg import (
     solve,
 )
 from gpjax.linalg.operations import (
-    LinearOperator,
     lower_cholesky,
 )
 from gpjax.linalg.utils import add_jitter
@@ -576,80 +575,56 @@ class ConjugatePosterior(AbstractPosterior[P, GL]):
             GaussianDistribution: A function that accepts an input array and
                 returns the predictive distribution as a `GaussianDistribution`.
         """
+        x = train_data.X
+        y = train_data.y
         # Observation noise o²
         obs_noise = jnp.square(self.likelihood.obs_stddev.value)
         mx = self.prior.mean_function(x)
-        Kxt = self.prior.kernel.cross_covariance(x, t)
-        mean_t = self.prior.mean_function(t)
+        # Precompute Gram matrix, Kxx, at training inputs, x
+        Kxx = self.prior.kernel.gram(x)
+        Kxx = add_jitter(Kxx.to_dense(), self.jitter)
+
+        Sigma_dense = Kxx + jnp.eye(Kxx.shape[0]) * obs_noise
+        Sigma = psd(Dense(Sigma_dense))
+        L_sigma = lower_cholesky(Sigma)
+
+        Kxt = self.prior.kernel.cross_covariance(x, test_inputs)
+
+        L_inv_Kxt = solve(L_sigma, Kxt)
+        L_inv_y_diff = solve(L_sigma, y - mx)
+
+        mean_t = self.prior.mean_function(test_inputs)
+        mean = mean_t + jnp.matmul(L_inv_Kxt.T, L_inv_y_diff)
 
         def _return_full_covariance(
-            x: Num[Array, "N D"],
-            y: Num[Array, "N Q"],
+            L_inv_Kxt: Num[Array, "N M"],
             t: Num[Array, "M D"],
         ) -> Dense:
-
-            # Precompute Gram matrix, Kxx, at training inputs, x
-            Kxx = self.prior.kernel.gram(x)
-            Kxx = add_jitter(Kxx.to_dense(), self.jitter)
-
-            Sigma_dense = Kxx + jnp.eye(Kxx.shape[0]) * obs_noise
-            Sigma = psd(Dense(Sigma_dense))
-            L_sigma = lower_cholesky(Sigma)
-
-            
             Ktt = self.prior.kernel.gram(t)
-            
-
-            L_inv_Kxt = solve(L_sigma, Kxt)
-            L_inv_y_diff = solve(L_sigma, y - mx)
-
-            mean = mean_t + jnp.matmul(L_inv_Kxt.T, L_inv_y_diff)
-            mean = jnp.atleast_1d(mean.squeeze())
-
             covariance = Ktt.to_dense() - jnp.matmul(L_inv_Kxt.T, L_inv_Kxt)
             covariance = add_jitter(covariance, self.prior.jitter)
             covariance = psd(Dense(covariance))
-            return mean, covariance
+            return covariance
 
         def _return_diagonal_covariance(
-            x: Num[Array, "N D"],
-            y: Num[Array, "N Q"],
+            L_inv_Kxt: Num[Array, "N M"],
             t: Num[Array, "M D"],
         ) -> Dense:
-            # Observation noise o²
-
-            # Precompute Gram matrix, Kxx, at training inputs, x
-            Kxx = self.prior.kernel.diagonal(x).diagonal
-            Kxx += self.jitter
-
-            Sigma_dense = Kxx + obs_noise
-            Sigma = psd(Diagonal(Sigma_dense))
-            L_sigma = lower_cholesky(Sigma)
-
-            mean_t = self.prior.mean_function(t)
             Ktt = self.prior.kernel.diagonal(t).diagonal
-            
-            L_inv_Kxt = solve(L_sigma, Kxt)
-            L_inv_y_diff = solve(L_sigma, y - mx)
-
-            mean = mean_t + jnp.matmul(L_inv_Kxt.T, L_inv_y_diff)
-            mean = jnp.atleast_1d(mean.squeeze())
-
             covariance = Ktt - jnp.einsum("ij, ji->i", L_inv_Kxt.T, L_inv_Kxt)
             covariance += self.prior.jitter
             covariance = psd(Dense(jnp.diag(jnp.atleast_1d(covariance.squeeze()))))
-            return mean, covariance
+            return covariance
 
-        mu, cov = jax.lax.cond(
+        cov = jax.lax.cond(
             return_covariance_type == "dense",
-            _return_mean_and_full_covariance,
-            _return_mean_and_diagonal_covariance,
-            train_data.X,
-            train_data.y,
+            _return_full_covariance,
+            _return_diagonal_covariance,
+            L_inv_Kxt,
             test_inputs,
         )
 
-        return GaussianDistribution(loc=mu, scale=cov)
+        return GaussianDistribution(loc=jnp.atleast_1d(mean.squeeze()), scale=cov)
 
     def sample_approx(
         self,
@@ -775,7 +750,7 @@ class NonConjugatePosterior(AbstractPosterior[P, NGL]):
 
     def predict(
         self,
-        test_inputs: Num[Array, "N D"],
+        test_inputs: Num[Array, "M D"],
         train_data: Dataset,
         *,
         return_covariance_type: Literal["dense", "diagonal"] = "dense",
@@ -804,74 +779,45 @@ class NonConjugatePosterior(AbstractPosterior[P, NGL]):
                 input array and returns the predictive distribution as
                 a `dx.Distribution`.
         """
+        x = train_data.X
+        t = test_inputs
+        mean_function = self.prior.mean_function
+        kernel = self.prior.kernel
 
-        def _return_mean_and_full_covariance(
-            x: Num[Array, "N D"],
-            t: Num[Array, "N D"],
-        ) -> tuple[Float[Array, " N"], Dense]:
-            mean_function = self.prior.mean_function
-            kernel = self.prior.kernel
+        # Precompute lower triangular of Gram matrix
+        Kxx = kernel.gram(x)
+        Kxx_dense = add_jitter(Kxx.to_dense(), self.prior.jitter)
+        Kxx = psd(Dense(Kxx_dense))
+        Lx = lower_cholesky(Kxx)
 
-            # Precompute lower triangular of Gram matrix
-            Kxx = kernel.gram(x)
-            Kxx_dense = add_jitter(Kxx.to_dense(), self.prior.jitter)
-            Kxx = psd(Dense(Kxx_dense))
-            Lx = lower_cholesky(Kxx)
+        Kxt = kernel.cross_covariance(x, t)
+        # Lx⁻¹ Kxt
+        Lx_inv_Kxt = solve(Lx, Kxt)
 
-            # Compute terms of the posterior predictive distribution
-            Ktx = kernel.cross_covariance(t, x)
+        mean_t = mean_function(t)
+        # Whitened function values, wx, corresponding to the inputs, x
+        wx = self.latent.value
+
+        # μt + Ktx Lx⁻¹ wx
+        mean = mean_t + jnp.matmul(Lx_inv_Kxt.T, wx)
+
+        def _return_full_covariance(
+            Lx_inv_Kxt: Num[Array, "N M"],
+            t: Num[Array, "M D"],
+        ) -> Dense:
             Ktt = kernel.gram(t)
-            mean_t = mean_function(t)
-
-            # Lx⁻¹ Kxt
-            Lx_inv_Kxt = solve(Lx, Ktx.T)
-
-            # Whitened function values, wx, corresponding to the inputs, x
-            wx = self.latent.value
-
-            # μt + Ktx Lx⁻¹ wx
-            mean = mean_t + jnp.matmul(Lx_inv_Kxt.T, wx)
-            mean = jnp.atleast_1d(mean.squeeze())
-
-            # Ktt - Ktx Kxx⁻¹ Kxt, TODO: Take advantage of covariance structure
-            # to compute Schur complement more efficiently.
             covariance = Ktt.to_dense() - jnp.matmul(Lx_inv_Kxt.T, Lx_inv_Kxt)
             covariance = add_jitter(covariance, self.prior.jitter)
             covariance = psd(Dense(covariance))
 
-            return mean, covariance
+            return covariance
 
-        def _return_mean_and_diagonal_covariance(
-            x: Num[Array, "N D"],
-            t: Num[Array, "N D"],
-        ) -> tuple[Float[Array, " N"], Dense]:
-            mean_function = self.prior.mean_function
-            kernel = self.prior.kernel
-
-            # Precompute lower triangular of Gram matrix
-            Kxx = kernel.diagonal(x).diagonal
-            Kxx += self.prior.jitter
-            Kxx = psd(Diagonal(Kxx))
-            Lx = lower_cholesky(Kxx)
-
-            # Compute terms of the posterior predictive distribution
-            Ktx = kernel.cross_covariance(t, x)
-            Ktt = kernel.diagonal(t).diagonal[:, jnp.newaxis]
-            mean_t = mean_function(t)
-
-            # Lx⁻¹ Kxt
-            Lx_inv_Kxt_diag = jnp.diag(solve(Lx, Ktx.T))[:, jnp.newaxis]
-
-            # Whitened function values, wx, corresponding to the inputs, x
-            wx = self.latent.value
-
-            # μt + Ktx Lx⁻¹ wx
-            mean = mean_t + Lx_inv_Kxt_diag * wx
-            mean = jnp.atleast_1d(mean.squeeze())
-
-            # Ktt - Ktx Kxx⁻¹ Kxt, TODO: Take advantage of covariance structure
-            # to compute Schur complement more efficiently.
-            covariance = Ktt - jnp.square(Lx_inv_Kxt_diag)
+        def _return_diagonal_covariance(
+            Lx_inv_Kxt: Num[Array, "N M"],
+            t: Num[Array, "M D"],
+        ) -> Dense:
+            Ktt = kernel.diagonal(t).diagonal
+            covariance = Ktt - jnp.einsum("ij, ji->i", Lx_inv_Kxt.T, Lx_inv_Kxt)
             covariance += self.prior.jitter
             # It would be nice to return a Diagonal here, but the pytree needs
             # to be the same for both cond branches and the other branch needs
@@ -880,17 +826,17 @@ class NonConjugatePosterior(AbstractPosterior[P, NGL]):
             # and hence are not the same pytree anymore.
             covariance = psd(Dense(jnp.diag(jnp.atleast_1d(covariance.squeeze()))))
 
-            return mean, covariance
+            return covariance
 
-        mu, cov = jax.lax.cond(
+        cov = jax.lax.cond(
             return_covariance_type == "dense",
-            _return_mean_and_full_covariance,
-            _return_mean_and_diagonal_covariance,
-            train_data.X,
+            _return_full_covariance,
+            _return_diagonal_covariance,
+            Lx_inv_Kxt,
             test_inputs,
         )
 
-        return GaussianDistribution(mu, cov)
+        return GaussianDistribution(jnp.atleast_1d(mean.squeeze()), cov)
 
 
 #######################

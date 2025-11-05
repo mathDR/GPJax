@@ -107,7 +107,9 @@ def test_prior_with_diag(
     # test that off diagonal elements are zero
     assert jnp.all((sigma - jnp.diag(jnp.diag(sigma))) == 0)
     # test that we return exactly the diagonal of the full covariance
-    assert jnp.all(jnp.diag(sigma)==jnp.diag(marginal_distribution_full.covariance()))
+    assert jnp.allclose(
+        jnp.diag(sigma), jnp.diag(marginal_distribution_full.covariance())
+    )
 
 
 @pytest.mark.parametrize("num_datapoints", [1, 10])
@@ -185,7 +187,9 @@ def test_conjugate_posterior_with_diag(
     # test that off diagonal elements are zero
     assert jnp.all((sigma - jnp.diag(jnp.diag(sigma))) == 0)
     # test that we return exactly the diagonal of the full covariance
-    assert jnp.all(jnp.diag(sigma)==jnp.diag(marginal_distribution_full.covariance()))
+    assert jnp.allclose(
+        jnp.diag(sigma), jnp.diag(marginal_distribution_full.covariance())
+    )
 
 
 @pytest.mark.parametrize("num_datapoints", [1, 10])
@@ -228,7 +232,7 @@ def test_conjugate_posterior(
     mu = marginal_distribution.mean
     sigma = marginal_distribution.covariance()
     assert mu.shape == (num_test_datapoints,)
-    assert sigma.shape == (num__test_datapoints, num_test_datapoints)
+    assert sigma.shape == (num_test_datapoints, num_test_datapoints)
 
 
 @pytest.mark.parametrize("num_datapoints", [1, 10])
@@ -265,23 +269,29 @@ def test_nonconjugate_posterior_with_diag(
 
     # Query a marginal distribution of the posterior at some inputs.
     inputs = jnp.linspace(-3.0, 3.0, num_test_datapoints).reshape(-1, 1)
-    marginal_distribution = posterior(inputs, D, return_covariance_type="diagonal")
+    marginal_distribution_diag = posterior(inputs, D, return_covariance_type="diagonal")
+    marginal_distribution_full = posterior(inputs, D, return_covariance_type="dense")
 
     # Ensure that the marginal distribution is a Gaussian.
-    assert isinstance(marginal_distribution, GaussianDistribution)
-    assert isinstance(marginal_distribution, NumpyroDistribution)
+    assert isinstance(marginal_distribution_diag, GaussianDistribution)
+    assert isinstance(marginal_distribution_diag, NumpyroDistribution)
 
     # Ensure that the marginal distribution has the correct shape.
-    mu = marginal_distribution.mean
-    sigma = marginal_distribution.covariance()
+    mu = marginal_distribution_diag.mean
+    sigma = marginal_distribution_diag.covariance()
     assert mu.shape == (num_test_datapoints,)
     # We are still returning a full covariance, even though the off diagonal
     # should all be zeros...
     assert sigma.shape == (num_test_datapoints, num_test_datapoints)
     assert jnp.all((sigma - jnp.diag(jnp.diag(sigma))) == 0)
+    # test that we return exactly the diagonal of the full covariance
+    assert jnp.allclose(
+        jnp.diag(sigma), jnp.diag(marginal_distribution_full.covariance())
+    )
 
 
 @pytest.mark.parametrize("num_datapoints", [1, 10])
+@pytest.mark.parametrize("num_test_datapoints", [1, 10, 200])
 @pytest.mark.parametrize("kernel", [RBF, Matern52])
 @pytest.mark.parametrize("mean_function", [Zero, Constant])
 def test_nonconjugate_posterior(
@@ -313,7 +323,7 @@ def test_nonconjugate_posterior(
     assert (posterior.latent.value == latent_values).all()
 
     # Query a marginal distribution of the posterior at some inputs.
-    inputs = jnp.linspace(-3.0, 3.0, num_datapoints).reshape(-1, 1)
+    inputs = jnp.linspace(-3.0, 3.0, num_test_datapoints).reshape(-1, 1)
     marginal_distribution = posterior(inputs, D)
 
     # Ensure that the marginal distribution is a Gaussian.
@@ -323,8 +333,8 @@ def test_nonconjugate_posterior(
     # Ensure that the marginal distribution has the correct shape.
     mu = marginal_distribution.mean
     sigma = marginal_distribution.covariance()
-    assert mu.shape == (num_datapoints,)
-    assert sigma.shape == (num_datapoints, num_datapoints)
+    assert mu.shape == (num_test_datapoints,)
+    assert sigma.shape == (num_test_datapoints, num_test_datapoints)
 
 
 @pytest.mark.parametrize("likelihood", [Bernoulli, Gaussian])
