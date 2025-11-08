@@ -15,7 +15,11 @@
 
 import beartype.typing as tp
 import jax.numpy as jnp
-from jaxtyping import Float, Integer, Num
+from jaxtyping import (
+    Float,
+    Integer,
+    Num,
+)
 
 from gpjax.kernels.computations import (
     AbstractKernelComputation,

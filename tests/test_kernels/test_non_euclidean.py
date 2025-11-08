@@ -10,7 +10,11 @@
 # # See the License for the specific language governing permissions and
 # # limitations under the License.
 
-from jax import config, jit, vmap
+from jax import (
+    config,
+    jit,
+    vmap,
+)
 import jax.numpy as jnp
 import networkx as nx
 
@@ -84,7 +88,7 @@ def test_graph_kernel_vmappable_over_pairs():
     y = jnp.array([4, 3, 2, 1, 0])
 
     vectorised_eval = vmap(lambda a, b: kernel(a, b))(x, y)
-    baseline = jnp.asarray([kernel(a, b) for a, b in zip(x, y)])
+    baseline = jnp.asarray([kernel(a, b) for a, b in zip(x, y, strict=False)])
 
     assert vectorised_eval.shape == (5,)
     assert jnp.allclose(vectorised_eval, baseline)
