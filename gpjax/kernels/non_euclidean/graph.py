@@ -15,11 +15,7 @@
 
 import beartype.typing as tp
 import jax.numpy as jnp
-from jaxtyping import (
-    Float,
-    Int,
-    Num,
-)
+from jaxtyping import Float, Integer, Num
 
 from gpjax.kernels.computations import (
     AbstractKernelComputation,
@@ -103,11 +99,32 @@ class GraphKernel(StationaryKernel):
 
     def __call__(
         self,
-        x: Int[Array, "N 1"],
-        y: Int[Array, "M 1"],
+        x: tp.Union[ScalarInt, Integer[Array, " N"], Integer[Array, "N 1"]],
+        y: tp.Union[ScalarInt, Integer[Array, " M"], Integer[Array, "M 1"]],
     ):
+        x_idx = self._prepare_indices(x)
+        y_idx = self._prepare_indices(y)
         S = calculate_heat_semigroup(self)
-        Kxx = (jax_gather_nd(self.eigenvectors, x) * S.squeeze()) @ jnp.transpose(
-            jax_gather_nd(self.eigenvectors, y)
+        Kxx = (jax_gather_nd(self.eigenvectors, x_idx) * S.squeeze()) @ jnp.transpose(
+            jax_gather_nd(self.eigenvectors, y_idx)
         )  # shape (n,n)
         return Kxx.squeeze()
+
+    def _prepare_indices(
+        self,
+        indices: tp.Union[ScalarInt, Integer[Array, " N"], Integer[Array, "N 1"]],
+    ) -> Integer[Array, "N 1"]:
+        """Ensure index arrays are integer column vectors regardless of caller shape."""
+
+        idx = jnp.asarray(indices, dtype=jnp.int32)
+        idx = jnp.atleast_1d(idx)
+
+        if idx.ndim > 2:
+            raise ValueError(
+                "GraphKernel expects indices shaped (N,) or (N, 1). "
+                f"Received {idx.shape}."
+            )
+        if idx.ndim == 2 and idx.shape[-1] != 1:
+            raise ValueError("GraphKernel expects index arrays with a single column.")
+
+        return idx.reshape(-1, 1)
