@@ -118,13 +118,4 @@ class GraphKernel(StationaryKernel):
 
         idx = jnp.asarray(indices, dtype=jnp.int32)
         idx = jnp.atleast_1d(idx)
-
-        if idx.ndim > 2:
-            raise ValueError(
-                "GraphKernel expects indices shaped (N,) or (N, 1). "
-                f"Received {idx.shape}."
-            )
-        if idx.ndim == 2 and idx.shape[-1] != 1:
-            raise ValueError("GraphKernel expects index arrays with a single column.")
-
         return idx.reshape(-1, 1)
