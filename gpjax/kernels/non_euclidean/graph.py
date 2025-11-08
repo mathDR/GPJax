@@ -99,8 +99,8 @@ class GraphKernel(StationaryKernel):
 
     def __call__(
         self,
-        x: tp.Union[ScalarInt, Integer[Array, " N"], Integer[Array, "N 1"]],
-        y: tp.Union[ScalarInt, Integer[Array, " M"], Integer[Array, "M 1"]],
+        x: ScalarInt | Integer[Array, " N"] | Integer[Array, "N 1"],
+        y: ScalarInt | Integer[Array, " M"] | Integer[Array, "M 1"],
     ):
         x_idx = self._prepare_indices(x)
         y_idx = self._prepare_indices(y)
@@ -112,7 +112,7 @@ class GraphKernel(StationaryKernel):
 
     def _prepare_indices(
         self,
-        indices: tp.Union[ScalarInt, Integer[Array, " N"], Integer[Array, "N 1"]],
+        indices: ScalarInt | Integer[Array, " N"] | Integer[Array, "N 1"],
     ) -> Integer[Array, "N 1"]:
         """Ensure index arrays are integer column vectors regardless of caller shape."""
 
