@@ -123,7 +123,7 @@ class AbstractKernel(nnx.Module):
         """
         return self.compute_engine.gram(self, x)
 
-    def diagonal(self, x: Num[Array, "N D"]) -> Float[Array, " N"]:
+    def diagonal(self, x: Num[Array, "N D"]) -> LinearOperator:
         r"""Compute the diagonal of the gram matrix of the kernel.
 
         Args:

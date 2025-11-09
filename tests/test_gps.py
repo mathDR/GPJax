@@ -4,7 +4,7 @@
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#     http://www.apache.org/licenses/LICENSE-2.0
+# http://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -78,6 +78,43 @@ def test_abstract_posterior():
 @pytest.mark.parametrize("num_datapoints", [1, 10])
 @pytest.mark.parametrize("kernel", [RBF, Matern52])
 @pytest.mark.parametrize("mean_function", [Zero, Constant])
+def test_prior_with_diag(
+    num_datapoints: int,
+    kernel: type[AbstractKernel],
+    mean_function: Type[AbstractMeanFunction],
+) -> None:
+    # Create prior.
+    prior = Prior(mean_function=mean_function(), kernel=kernel())
+
+    # Check types.
+    assert isinstance(prior, Prior)
+    assert isinstance(prior, AbstractPrior)
+
+    # Query a marginal distribution at some inputs.
+    inputs = jnp.linspace(-3.0, 3.0, num_datapoints).reshape(-1, 1)
+    marginal_distribution_diag = prior(inputs, return_covariance_type="diagonal")
+    marginal_distribution_full = prior(inputs, return_covariance_type="dense")
+
+    # Ensure that the marginal distribution is a Gaussian.
+    assert isinstance(marginal_distribution_diag, GaussianDistribution)
+    assert isinstance(marginal_distribution_diag, NumpyroDistribution)
+
+    # Ensure that the marginal distribution has the correct shape.
+    mu = marginal_distribution_diag.mean
+    sigma = marginal_distribution_diag.covariance()
+    assert mu.shape == (num_datapoints,)
+    assert sigma.shape == (num_datapoints, num_datapoints)
+    # test that off diagonal elements are zero
+    assert jnp.all((sigma - jnp.diag(jnp.diag(sigma))) == 0)
+    # test that we return exactly the diagonal of the full covariance
+    assert jnp.allclose(
+        jnp.diag(sigma), jnp.diag(marginal_distribution_full.covariance())
+    )
+
+
+@pytest.mark.parametrize("num_datapoints", [1, 10])
+@pytest.mark.parametrize("kernel", [RBF, Matern52])
+@pytest.mark.parametrize("mean_function", [Zero, Constant])
 def test_prior(
     num_datapoints: int,
     kernel: type[AbstractKernel],
@@ -106,10 +143,12 @@ def test_prior(
 
 
 @pytest.mark.parametrize("num_datapoints", [1, 10])
+@pytest.mark.parametrize("num_test_datapoints", [1, 10, 200])
 @pytest.mark.parametrize("kernel", [RBF, Matern52])
 @pytest.mark.parametrize("mean_function", [Zero, Constant])
-def test_conjugate_posterior(
+def test_conjugate_posterior_with_diag(
     num_datapoints: int,
+    num_test_datapoints: int,
     kernel: type[AbstractKernel],
     mean_function: type[AbstractMeanFunction],
 ) -> None:
@@ -132,7 +171,57 @@ def test_conjugate_posterior(
     assert isinstance(posterior, ConjugatePosterior)
 
     # Query a marginal distribution of the posterior at some inputs.
-    inputs = jnp.linspace(-3.0, 3.0, num_datapoints).reshape(-1, 1)
+    inputs = jnp.linspace(-3.0, 3.0, num_test_datapoints).reshape(-1, 1)
+    marginal_distribution_diag = posterior(inputs, D, return_covariance_type="diagonal")
+    marginal_distribution_full = posterior(inputs, D, return_covariance_type="dense")
+
+    # Ensure that the marginal distribution is a Gaussian.
+    assert isinstance(marginal_distribution_diag, GaussianDistribution)
+    assert isinstance(marginal_distribution_diag, NumpyroDistribution)
+
+    # Ensure that the marginal distribution has the correct shape.
+    mu = marginal_distribution_diag.mean
+    sigma = marginal_distribution_diag.covariance()
+    assert mu.shape == (num_test_datapoints,)
+    assert sigma.shape == (num_test_datapoints, num_test_datapoints)
+    # test that off diagonal elements are zero
+    assert jnp.all((sigma - jnp.diag(jnp.diag(sigma))) == 0)
+    # test that we return exactly the diagonal of the full covariance
+    assert jnp.allclose(
+        jnp.diag(sigma), jnp.diag(marginal_distribution_full.covariance())
+    )
+
+
+@pytest.mark.parametrize("num_datapoints", [1, 10])
+@pytest.mark.parametrize("num_test_datapoints", [1, 10, 200])
+@pytest.mark.parametrize("kernel", [RBF, Matern52])
+@pytest.mark.parametrize("mean_function", [Zero, Constant])
+def test_conjugate_posterior(
+    num_datapoints: int,
+    num_test_datapoints: int,
+    kernel: type[AbstractKernel],
+    mean_function: type[AbstractMeanFunction],
+) -> None:
+    # Create a dataset.
+    key = jr.key(123)
+    x = jr.uniform(key=key, minval=-2.0, maxval=2.0, shape=(num_datapoints, 1))
+    y = jnp.sin(x) + jr.normal(key=key, shape=x.shape) * 0.1
+    D = Dataset(X=x, y=y)
+
+    # Define prior.
+    prior = Prior(mean_function=mean_function(), kernel=kernel())
+
+    # Define a likelihood.
+    likelihood = Gaussian(num_datapoints=num_datapoints)
+
+    # Construct the posterior via the class.
+    posterior = ConjugatePosterior(prior=prior, likelihood=likelihood)
+
+    # Check types.
+    assert isinstance(posterior, ConjugatePosterior)
+
+    # Query a marginal distribution of the posterior at some inputs.
+    inputs = jnp.linspace(-3.0, 3.0, num_test_datapoints).reshape(-1, 1)
     marginal_distribution = posterior(inputs, D)
 
     # Ensure that the marginal distribution is a Gaussian.
@@ -142,15 +231,17 @@ def test_conjugate_posterior(
     # Ensure that the marginal distribution has the correct shape.
     mu = marginal_distribution.mean
     sigma = marginal_distribution.covariance()
-    assert mu.shape == (num_datapoints,)
-    assert sigma.shape == (num_datapoints, num_datapoints)
+    assert mu.shape == (num_test_datapoints,)
+    assert sigma.shape == (num_test_datapoints, num_test_datapoints)
 
 
 @pytest.mark.parametrize("num_datapoints", [1, 10])
+@pytest.mark.parametrize("num_test_datapoints", [1, 10, 200])
 @pytest.mark.parametrize("kernel", [RBF, Matern52])
 @pytest.mark.parametrize("mean_function", [Zero, Constant])
-def test_nonconjugate_posterior(
+def test_nonconjugate_posterior_with_diag(
     num_datapoints: int,
+    num_test_datapoints: int,
     kernel: type[AbstractKernel],
     mean_function: type[AbstractMeanFunction],
 ) -> None:
@@ -177,7 +268,62 @@ def test_nonconjugate_posterior(
     assert (posterior.latent.value == latent_values).all()
 
     # Query a marginal distribution of the posterior at some inputs.
-    inputs = jnp.linspace(-3.0, 3.0, num_datapoints).reshape(-1, 1)
+    inputs = jnp.linspace(-3.0, 3.0, num_test_datapoints).reshape(-1, 1)
+    marginal_distribution_diag = posterior(inputs, D, return_covariance_type="diagonal")
+    marginal_distribution_full = posterior(inputs, D, return_covariance_type="dense")
+
+    # Ensure that the marginal distribution is a Gaussian.
+    assert isinstance(marginal_distribution_diag, GaussianDistribution)
+    assert isinstance(marginal_distribution_diag, NumpyroDistribution)
+
+    # Ensure that the marginal distribution has the correct shape.
+    mu = marginal_distribution_diag.mean
+    sigma = marginal_distribution_diag.covariance()
+    assert mu.shape == (num_test_datapoints,)
+    # We are still returning a full covariance, even though the off diagonal
+    # should all be zeros...
+    assert sigma.shape == (num_test_datapoints, num_test_datapoints)
+    assert jnp.all((sigma - jnp.diag(jnp.diag(sigma))) == 0)
+    # test that we return exactly the diagonal of the full covariance
+    assert jnp.allclose(
+        jnp.diag(sigma), jnp.diag(marginal_distribution_full.covariance())
+    )
+
+
+@pytest.mark.parametrize("num_datapoints", [1, 10])
+@pytest.mark.parametrize("num_test_datapoints", [1, 10, 200])
+@pytest.mark.parametrize("kernel", [RBF, Matern52])
+@pytest.mark.parametrize("mean_function", [Zero, Constant])
+def test_nonconjugate_posterior(
+    num_datapoints: int,
+    num_test_datapoints: int,
+    kernel: type[AbstractKernel],
+    mean_function: type[AbstractMeanFunction],
+) -> None:
+    # Create a dataset.
+    key = jr.key(123)
+    x = jr.uniform(key=key, minval=-2.0, maxval=2.0, shape=(num_datapoints, 1))
+    y = jnp.sin(x) + jr.normal(key=key, shape=x.shape) * 0.1
+    D = Dataset(X=x, y=y)
+
+    # Define prior.
+    prior = Prior(mean_function=mean_function(), kernel=kernel())
+
+    # Define a likelihood.
+    likelihood = Bernoulli(num_datapoints=num_datapoints)
+
+    # Construct the posterior via the class.
+    posterior = NonConjugatePosterior(prior=prior, likelihood=likelihood)
+
+    # Check types.
+    assert isinstance(posterior, NonConjugatePosterior)
+
+    # Check latent values.
+    latent_values = jr.normal(posterior.key, (num_datapoints, 1))
+    assert (posterior.latent.value == latent_values).all()
+
+    # Query a marginal distribution of the posterior at some inputs.
+    inputs = jnp.linspace(-3.0, 3.0, num_test_datapoints).reshape(-1, 1)
     marginal_distribution = posterior(inputs, D)
 
     # Ensure that the marginal distribution is a Gaussian.
@@ -187,8 +333,8 @@ def test_nonconjugate_posterior(
     # Ensure that the marginal distribution has the correct shape.
     mu = marginal_distribution.mean
     sigma = marginal_distribution.covariance()
-    assert mu.shape == (num_datapoints,)
-    assert sigma.shape == (num_datapoints, num_datapoints)
+    assert mu.shape == (num_test_datapoints,)
+    assert sigma.shape == (num_test_datapoints, num_test_datapoints)
 
 
 @pytest.mark.parametrize("likelihood", [Bernoulli, Gaussian])
@@ -298,17 +444,17 @@ def test_conjugate_posterior_sample_approx(num_datapoints, kernel, mean_function
     D = Dataset(X=x, y=y)
 
     # with pytest.raises(ValueError):
-    #     p.sample_approx(-1, D, key)
+    # p.sample_approx(-1, D, key)
     # with pytest.raises(ValueError):
-    #     p.sample_approx(0, D, key)
+    # p.sample_approx(0, D, key)
     # with pytest.raises(ValidationErrors):
-    #     p.sample_approx(0.5, D, key)
+    # p.sample_approx(0.5, D, key)
     # with pytest.raises(ValueError):
-    #     p.sample_approx(1, D, key, -10)
+    # p.sample_approx(1, D, key, -10)
     # with pytest.raises(ValueError):
-    #     p.sample_approx(1, D, key, 0)
+    # p.sample_approx(1, D, key, 0)
     # with pytest.raises(ValidationErrors):
-    #     p.sample_approx(1, D, key, 0.5)
+    # p.sample_approx(1, D, key, 0.5)
 
     sampled_fn = p.sample_approx(1, D, key, num_features=100)
     assert isinstance(sampled_fn, Callable)  # check type
