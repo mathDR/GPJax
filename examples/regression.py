@@ -121,10 +121,15 @@ prior = gpx.gps.Prior(mean_function=meanf, kernel=kernel)
 # we have just defined can be represented by a
 # [TensorFlow Probability](https://www.tensorflow.org/probability/api_docs/python/tfp/substrates/jax)
 # multivariate Gaussian distribution. Such functionality enables trivial sampling, and
-# the evaluation of the GP's mean and covariance .
+# the evaluation of the GP's mean and covariance.
+#
+# Since we want to sample from the full posterior, we need to calculate the full covariance matrix.
+# We can enforce this by including the `return_covariance_type = "dense"` attribute when predicting.
+# Note this is what will be defaulted if left blank.
 
 # %%
-prior_dist = prior.predict(xtest)
+# %% [markdown]
+prior_dist = prior.predict(xtest, return_covariance_type="dense")
 
 prior_mean = prior_dist.mean
 prior_std = prior_dist.variance
@@ -212,9 +217,13 @@ print(-gpx.objectives.conjugate_mll(opt_posterior, D))
 # this, we use our defined `posterior` and `likelihood` at our test inputs to obtain
 # the predictive distribution as a `Distrax` multivariate Gaussian upon which `mean`
 # and `stddev` can be used to extract the predictive mean and standard deviatation.
+# 
+# We are only concerned here about the variance between the test points and themselves, so
+# we can just copute the diagonal version of the covariance.  We enforce this by using
+# `return_covariance_type = "diagonal"` in the `predict` call.
 
 # %%
-latent_dist = opt_posterior.predict(xtest, train_data=D)
+latent_dist = opt_posterior.predict(xtest, train_data=D, return_covariance_type="diagonal")
 predictive_dist = opt_posterior.likelihood(latent_dist)
 
 predictive_mean = predictive_dist.mean
