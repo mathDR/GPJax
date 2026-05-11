@@ -550,6 +550,58 @@ class Poisson(AbstractLikelihood):
         return self.link_function(dist.mean)
 
 
+class VonMises(AbstractLikelihood):
+    kappa: tp.Any
+
+    def __init__(
+        self,
+        kappa: tp.Union[ScalarFloat, Float[Array, "#N"], NonNegativeReal] = 1.0,
+        num_datapoints: int = 1,
+        integrator: AbstractIntegrator = AnalyticalGaussianIntegrator(),
+    ):
+        r"""Initializes the VonMises likelihood.
+
+        Args:
+            kappa ScalarFloat: the concentration of the Von Mises distribution.
+        """
+        if not isinstance(kappa, NonNegativeReal):
+            kappa = NonNegativeReal(jnp.asarray(kappa))
+        self.kappa = kappa
+
+        super().__init__(num_datapoints, integrator)
+
+    
+    def link_function(self, f: Float[Array, ...]) -> npd.VonMises:
+        r"""The link function of the von Mises likelihood.
+
+        Args:
+            f (Float[Array, "..."]): Function values.
+
+        Returns:
+            npd.VonMises: The likelihood function.
+        """
+        return npd.VonMises(loc=2.*jnp.arctan(f), concentration=_val(self.kappa).astype(f.dtype))
+
+    def predict(
+        self, dist: tp.Union[npd.MultivariateNormal, GaussianDistribution]
+    ) -> npd.VonMises:
+        r"""Evaluate the pointwise predictive distribution.
+
+        Evaluate the pointwise predictive distribution, given a Gaussian
+        process posterior and likelihood parameters.
+
+        Args:
+            dist ([npd.MultivariateNormal, GaussianDistribution].): The Gaussian
+                process posterior, evaluated at a finite set of test points.
+
+        Returns:
+            npd.VonMises: The pointwise predictive distribution.
+        """
+        variance = jnp.diag(dist.covariance_matrix)
+        mean = dist.mean.ravel()
+        return self.link_function(mean / jnp.sqrt(1.0 + variance))
+
+
 def inv_probit(x: Float[Array, " *N"]) -> Float[Array, " *N"]:
     r"""Compute the inverse probit function.
 
@@ -565,7 +617,7 @@ def inv_probit(x: Float[Array, " *N"]) -> Float[Array, " *N"]:
     return 0.5 * (1.0 + jsp.special.erf(x / jnp.sqrt(2.0))) * (1 - 2 * jitter) + jitter
 
 
-NonGaussian = tp.Union[Poisson, Bernoulli]
+NonGaussian = tp.Union[Poisson, Bernoulli, VonMises]
 
 __all__ = [
     "AbstractHeteroscedasticLikelihood",
@@ -581,4 +633,5 @@ __all__ = [
     "Poisson",
     "SoftplusTransform",
     "inv_probit",
+    "VonMises"
 ]
