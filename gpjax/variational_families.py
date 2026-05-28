@@ -621,6 +621,61 @@ class NaturalVariationalGaussian(AbstractVariationalGaussian[L]):
         )
 
 
+class StreamingNaturalVariationalGaussian(NaturalVariationalGaussian):
+    """Replicating the tsvpg_cont method from Memory Based Dual Gaussian Processes for Sequential Learning."""
+
+    def online_update(
+        self, lambda_1_t: Float[Array, "M 1"],
+        lambda_2_t: Float[Array, "M M"],
+        extra_data=gpx.Dataset,
+        lr=1.0,
+    ) -> tp.Tuple[Float[Array, "M 1"], Float[Array, "M M"]]:
+        grad_mu = self.grad_varexp_natural_params(extra_data) 
+
+        lambda_1_t_new = (1.0 - lr) * lambda_1_t + lr * grad_mu[0]
+        lambda_2_t_new = (1.0 - lr) * lambda_2_t + lr * (-2) * grad_mu[1]
+
+        return lambda_1_t_new, lambda_2_t_new
+
+    def elbo(self, data: gpx.Dataset, memory: gpx.Dataset, scale: tp.Float) -> Float:
+        kl = self.prior_kl()
+        X, Y = data.X, data.y
+        f_mean, f_var = self.predict(X)
+        var_exp = self.likelihood.expected_log_likelihood(f_mean, f_var, Y)
+
+        if memory is not None: # adds memory term to the ELBO
+            X_m, Y_m = memory.X, memory.y
+            f_mean_m, f_var_m = self.predict(X_m)
+            var_exp_m = self.likelihood.expected_log_likelihood(f_mean_m, f_var_m, Y_m)
+        else:
+            var_exp_m = jnp.array(0.0, dtype=kl.dtype)
+
+        return jnp.sum(var_exp) + scale*var_exp_m - kl
+
+
+    def grad_varexp_natural_params(self, data: gpx.Dataset, nat_params=None):
+        X, Y = data.X, data.y
+
+        mean, var = self.predict(X)
+
+        ve = self.likelihood.expected_log_likelihood(mean, var, Y)
+        d_exp_dm = g.gradient(ve, mean)
+        d_exp_dv = g.gradient(ve, var)
+        del g
+
+        eps = 1e-8
+        d_exp_dv = tf.minimum(d_exp_dv, -eps * tf.ones_like(d_exp_dv))
+
+        grad_nat_1 = (d_exp_dm - 2.0 * (d_exp_dv * mean))
+        grad_nat_2 = d_exp_dv
+
+        K_uf = Kuf(self.inducing_variable, self.kernel, X)
+
+        grad_sparse_1 = K_uf @ grad_nat_1
+
+        grad_sparse_2 = K_uf @ tf.linalg.diag(tf.transpose(grad_nat_2)) @ tf.transpose(K_uf)
+
+        return grad_sparse_1, grad_sparse_2
 class ExpectationVariationalGaussian(AbstractVariationalGaussian[L]):
     r"""The natural variational Gaussian family of probability distributions.
 
